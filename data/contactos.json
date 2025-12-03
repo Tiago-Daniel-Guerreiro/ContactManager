@@ -1,0 +1,82 @@
+[
+  {
+    "nome": "João Silva",
+    "telemovel": "912345678",
+    "telemovel_normalizado": "912 345 678",
+    "ultimo_envio": "",
+    "ativo": true,
+    "selecionado": false
+  },
+  {
+    "nome": "Maria Santos",
+    "telemovel": "923456789",
+    "telemovel_normalizado": "923 456 789",
+    "ultimo_envio": "",
+    "ativo": true,
+    "selecionado": false
+  },
+  {
+    "nome": "Pedro Costa",
+    "telemovel": "934567890",
+    "telemovel_normalizado": "934 567 890",
+    "ultimo_envio": "",
+    "ativo": false,
+    "selecionado": false
+  },
+  {
+    "nome": "Ana Oliveira",
+    "telemovel": "915123456",
+    "telemovel_normalizado": "915 123 456",
+    "ultimo_envio": "",
+    "ativo": true,
+    "selecionado": false
+  },
+  {
+    "nome": "Carlos Ferreira",
+    "telemovel": "926789012",
+    "telemovel_normalizado": "926 789 012",
+    "ultimo_envio": "",
+    "ativo": true,
+    "selecionado": false
+  },
+  {
+    "nome": "Sofia Rodrigues",
+    "telemovel": "937890123",
+    "telemovel_normalizado": "937 890 123",
+    "ultimo_envio": "",
+    "ativo": true,
+    "selecionado": false
+  },
+  {
+    "nome": "Miguel Alves",
+    "telemovel": "918901234",
+    "telemovel_normalizado": "918 901 234",
+    "ultimo_envio": "",
+    "ativo": false,
+    "selecionado": false
+  },
+  {
+    "nome": "Beatriz Lima",
+    "telemovel": "929012345",
+    "telemovel_normalizado": "929 012 345",
+    "ultimo_envio": "",
+    "ativo": true,
+    "selecionado": false
+  },
+  {
+    "nome": "Ricardo Sousa",
+    "telemovel": "930123456",
+    "telemovel_normalizado": "930 123 456",
+    "ultimo_envio": "",
+    "ativo": true,
+    "selecionado": false
+  },
+  {
+    "nome": "Inês Martins",
+    "telemovel": "911234567",
+    "telemovel_normalizado": "911 234 567",
+    "ultimo_envio": "",
+    "ativo": true,
+    "selecionado": false
+  }
+]

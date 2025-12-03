@@ -1,0 +1,28 @@
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .data_handler import DataHandler
+    from .whatsapp_sender import WhatsAppSender
+    from .sms_sender import SMSSender
+
+
+def get_data_handler():
+    from .data_handler import DataHandler
+    return DataHandler()
+
+
+def get_whatsapp_sender():
+    from .whatsapp_sender import WhatsAppSender
+    return WhatsAppSender()
+
+
+def get_sms_sender():
+    from .sms_sender import SMSSender
+    return SMSSender()
+
+
+__all__ = [
+    'get_data_handler',
+    'get_whatsapp_sender',
+    'get_sms_sender'
+]

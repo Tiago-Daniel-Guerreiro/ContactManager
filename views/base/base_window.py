@@ -1,0 +1,158 @@
+import customtkinter as ctk
+from typing import Optional, Callable
+import sys
+
+# Importação condicional para evitar erros
+try:
+    from config.settings import ThemeManager
+except ImportError:
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+    from config.settings import ThemeManager
+
+
+class BaseWindow(ctk.CTkToplevel):
+    def __init__(
+        self,
+        parent: ctk.CTk,
+        title: str = "Janela",
+        size: tuple = (600, 400),
+        resizable: tuple = (True, True),
+        modal: bool = True,
+        center: bool = True
+    ):
+        # Inicialização silenciosa - esconde antes de construir
+        super().__init__(parent)
+        self.withdraw()  # Esconde imediatamente
+        
+        # Referências
+        self.parent = parent
+        self.theme = ThemeManager()
+        
+        # Configuração básica
+        self.title(title)
+        self.geometry(f"{size[0]}x{size[1]}")
+        self.resizable(resizable[0], resizable[1])
+        
+        # Configurar grid elástico na raiz
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+        
+        # Container principal com grid
+        self.main_frame = ctk.CTkFrame(self)
+        self.main_frame.grid(row=0, column=0, sticky="nsew")
+        
+        # Callbacks
+        self._on_close_callback: Optional[Callable] = None
+        
+        # Bind de eventos
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.bind("<Configure>", self._on_configure) # Redimensionamento
+        self.bind("<Escape>", lambda e: self._on_close())
+        
+        # Construir UI (implementado nas subclasses)
+        self._build_ui()
+        
+        # Modal
+        if modal:
+            self.transient(parent)
+            self.grab_set()
+        
+        # Centralizar e mostrar
+        if center:
+            self._center_on_parent()
+        
+        # Mostra a janela já construída (sem flickering)
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+    
+    def _build_ui(self):
+        pass
+    
+    def _center_on_parent(self):
+        self.update_idletasks()
+
+        # Dimensões da janela e do pai
+        w = self.winfo_width()
+        h = self.winfo_height()
+        pw = self.parent.winfo_width()
+        ph = self.parent.winfo_height()
+        px = self.parent.winfo_x()
+        py = self.parent.winfo_y()
+
+        # Dimensões da tela
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+
+        # Calcula posição central relativa ao pai
+        x = px + (pw - w) // 2
+        y = py + (ph - h) // 2
+
+        # Ajusta para não sair da tela
+        x = max(0, min(x, sw - w))
+        y = max(0, min(y, sh - h))
+
+        self.geometry(f"+{x}+{y}")
+
+    def _on_configure(self, event):
+        pass
+    
+    def _on_close(self):
+        if self._on_close_callback:
+            self._on_close_callback()
+        self.grab_release()
+        self.destroy()
+    
+    def set_on_close(self, callback: Callable):
+        self._on_close_callback = callback
+    
+    def configure_grid_weights(
+        self,
+        frame: ctk.CTkFrame,
+        rows: list[tuple[int, int]],
+        cols: list[tuple[int, int]]
+    ):
+        for row_idx, weight in rows:
+            frame.grid_rowconfigure(row_idx, weight=weight)
+        for col_idx, weight in cols:
+            frame.grid_columnconfigure(col_idx, weight=weight)
+
+
+class BaseMainWindow(ctk.CTk):   
+    def __init__(
+        self,
+        title: str = "Aplicação",
+        size: tuple = (1000, 750),
+        min_size: tuple = (800, 600)
+    ):
+        super().__init__()
+        
+        # Esconde durante construção
+        self.withdraw()
+        
+        # Theme
+        self.theme = ThemeManager()
+        
+        # Configuração
+        self.title(title)
+        self.geometry(f"{size[0]}x{size[1]}")
+        self.minsize(min_size[0], min_size[1])
+        
+        # Grid elástico
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+        
+        # Construir UI
+        self._build_ui()
+        
+        # Mostrar após construção
+        self.after(50, self._show_window)
+    
+    def _show_window(self):
+        self.deiconify()
+        self.lift()
+    
+    def _build_ui(self):
+        pass # Implementado nas subclasses

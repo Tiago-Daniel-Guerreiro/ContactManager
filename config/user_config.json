@@ -1,0 +1,6 @@
+{
+  "method": "sms",
+  "delay": 5,
+  "message": "Olá {nome}!",
+  "welcome": "Bem vindo {nome}.\nEnvie \"PARAR\" para não receber mais mensagens."
+}
