@@ -1,8 +1,3 @@
-"""
-Support - Sistema de Verificação e Instalação de Dependências
-Verifica e instala automaticamente as bibliotecas necessárias para o Contact Manager
-"""
-
 import subprocess
 import sys
 import os
@@ -19,20 +14,12 @@ class Cores:
     ROXO = '\033[95m'
 
 def limpar_tela():
-    """Limpa a tela do console"""
     os.system('cls' if os.name == 'nt' else 'clear')
 
 def pausar():
-    """Pausa e aguarda Enter"""
     input("\nPressione ENTER para continuar...")
 
 def verificar_instalar_dependencias():
-    """
-    Verifica e instala as dependências necessárias para o Contact Manager
-    
-    Returns:
-        bool: True se todas as dependências foram instaladas com sucesso
-    """
     print(f"{Cores.CIANO}{Cores.NEGRITO}Contact Manager - Verificação de Dependências{Cores.NORMAL}\n")
     print(f"{Cores.AMARELO}Verificando bibliotecas necessárias...{Cores.NORMAL}\n")
     
@@ -57,12 +44,10 @@ def verificar_instalar_dependencias():
             print(f"  {Cores.VERDE}{Cores.NORMAL} {pacote_pip:30s} - {descricao}")
             instaladas.append(pacote_pip)
         except ImportError:
-            print(f"  {Cores.VERMELHO}✗{Cores.NORMAL} {pacote_pip:30s} - {descricao} {Cores.VERMELHO}(FALTANDO){Cores.NORMAL}")
+            print(f"  {Cores.VERMELHO}X{Cores.NORMAL} {pacote_pip:30s} - {descricao} {Cores.VERMELHO}(FALTANDO){Cores.NORMAL}")
             faltando.append((pacote_pip, descricao))
     
-    print(f"\n{Cores.CIANO}{'='*70}{Cores.NORMAL}")
     print(f"Total: {Cores.VERDE}{len(instaladas)} instaladas{Cores.NORMAL} | {Cores.VERMELHO}{len(faltando)} faltando{Cores.NORMAL}")
-    print(f"{Cores.CIANO}{'='*70}{Cores.NORMAL}\n")
     
     # Se todas estiverem instaladas
     if not faltando:
@@ -102,17 +87,16 @@ def verificar_instalar_dependencias():
             if resultado.returncode == 0:
                 print(f"  {Cores.VERDE}{pacote} instalado com sucesso!{Cores.NORMAL}\n")
             else:
-                print(f"  {Cores.VERMELHO}✗ Erro ao instalar {pacote}{Cores.NORMAL}")
+                print(f"  {Cores.VERMELHO}Erro ao instalar {pacote}{Cores.NORMAL}")
                 print(f"  {Cores.AMARELO}Detalhes: {resultado.stderr[:200]}{Cores.NORMAL}\n")
                 sucesso = False
         except subprocess.TimeoutExpired:
-            print(f"  {Cores.VERMELHO}✗ Timeout ao instalar {pacote}{Cores.NORMAL}\n")
+            print(f"  {Cores.VERMELHO}Timeout ao instalar {pacote}{Cores.NORMAL}\n")
             sucesso = False
         except Exception as e:
-            print(f"  {Cores.VERMELHO}✗ Erro ao instalar {pacote}: {e}{Cores.NORMAL}\n")
+            print(f"  {Cores.VERMELHO}Erro ao instalar {pacote}: {e}{Cores.NORMAL}\n")
             sucesso = False
     
-    print(f"{Cores.CIANO}{'='*70}{Cores.NORMAL}\n")
     
     if sucesso:
         print(f"{Cores.VERDE}{Cores.NEGRITO}Todas as dependências foram instaladas com sucesso!{Cores.NORMAL}\n")
@@ -127,19 +111,17 @@ def verificar_instalar_dependencias():
         return False
 
 def verificar_python_version():
-    """Verifica se a versão do Python é adequada"""
     version = sys.version_info
     print(f"{Cores.CIANO}Versão do Python: {version.major}.{version.minor}.{version.micro}{Cores.NORMAL}\n")
-    
-    if version.major < 3 or (version.major == 3 and version.minor < 8):
-        print(f"{Cores.VERMELHO}AVISO: Python 3.8+ é recomendado. Sua versão pode não ser compatível.{Cores.NORMAL}\n")
+
+    if version.major < 3 or (version.major == 3 and version.minor < 13):
+        print(f"{Cores.VERMELHO}AVISO: Python 3.13+ é recomendado. Sua versão pode não ser compatível.{Cores.NORMAL}\n")
         return False
     
     print(f"{Cores.VERDE}Versão do Python adequada.{Cores.NORMAL}\n")
     return True
 
 def criar_requirements_txt():
-    """Cria arquivo requirements.txt com as dependências"""
     requirements_path = Path(__file__).parent / "requirements.txt"
     
     conteudo = """# Contact Manager - Dependências
@@ -163,12 +145,9 @@ Pillow==10.1.0
         return False
 
 def menu_principal():
-    """Menu principal do support"""
     while True:
         limpar_tela()
-        print(f"{Cores.CIANO}{Cores.NEGRITO}{'='*70}{Cores.NORMAL}")
         print(f"{Cores.CIANO}{Cores.NEGRITO}Contact Manager - Support Tool{Cores.NORMAL}")
-        print(f"{Cores.CIANO}{Cores.NEGRITO}{'='*70}{Cores.NORMAL}\n")
         
         print(f"{Cores.AMARELO}Escolha uma opção:{Cores.NORMAL}\n")
         print(f"  {Cores.VERDE}1){Cores.NORMAL} Verificar e instalar dependências")
