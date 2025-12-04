@@ -15,7 +15,8 @@ class PreviewDashboardWindow(BaseListWindow):
         on_send_general: Optional[Callable] = None,
         on_send_both: Optional[Callable] = None,
         on_confirm: Optional[Callable] = None,
-        read_only: bool = False
+        read_only: bool = False,
+        send_all_mode: bool = False  # Novo parâmetro
     ):
         self._on_send_welcome = on_send_welcome
         self._on_send_general = on_send_general
@@ -24,17 +25,23 @@ class PreviewDashboardWindow(BaseListWindow):
         self._read_only = read_only
         self._mensagem_geral = mensagem_geral
         self._mensagem_boas_vindas = mensagem_boas_vindas
+        self._send_all_mode = send_all_mode  # Guarda o modo
         
+        # Define colunas baseado no modo
         columns = [
-            {"title": "Nome", "key": "nome", "weight": 1, "min_width": 200, "anchor": "center"},
-            {"title": "Telemóvel", "key": "telemovel_normalizado", "weight": 0, "width": 150, "anchor": "center"},
-            {"title": "Selecionado", "key": "selecionado", "weight": 0, "type": "icon", "width": 80, "anchor": "center"},
-            {"title": "Ativo", "key": "ativo", "weight": 0, "type": "icon", "width": 60, "anchor": "center"}
+            {"title": "Nome", "key": "nome", "weight": 1, "min_width": 200},
+            {"title": "Telemóvel", "key": "telemovel_normalizado", "weight": 0, "width": 150},
         ]
         
+        # Só mostra coluna "Selecionado" se NÃO estiver em modo "Enviar para Todos"
+        if not send_all_mode:
+            columns.append({"title": "Selecionado", "key": "selecionado", "weight": 0, "type": "icon", "width": 80})
+
+        columns.append({"title": "Ativo", "key": "ativo", "weight": 0, "type": "icon", "width": 60})
+
         super().__init__(
             parent,
-            title="Preview - Confirmação de Envio",
+            title="Preview",
             size=(1000, 700),
             columns=columns,
             data=contacts,
@@ -177,15 +184,18 @@ class PreviewDashboardWindow(BaseListWindow):
             ).pack(side="left", padx=5)
     
     def _get_row_color(self, item: Contact) -> str:
+        # Se estiver no modo "Enviar para Todos", ignora o campo 'selecionado'
+        # e trata todos os contactos ativos como se estivessem selecionados
+        is_selected = item.selecionado if not self._send_all_mode else True
         
-        match (item.ativo, item.selecionado, item.verificar_enviar_boas_vindas()):
-            case (False, _, _): # Se inativo
+        match (item.ativo, is_selected, item.verificar_enviar_boas_vindas()):
+            case (False, _, _):  # Se inativo
                 color = self.theme.colors.inactive
-            case (True, False, _): # Ativo mas não selecionado
+            case (True, False, _):  # Ativo mas não selecionado
                 color = self.theme.colors.deselected
-            case (True, True, True): # Ativo, selecionado e vai receber boas-vindas
+            case (True, True, True):  # Ativo, selecionado e vai receber boas-vindas
                 color = self.theme.colors.pending
-            case _: # Ativo
+            case _:  # Ativo
                 color = self.theme.colors.active
 
         return color

@@ -68,7 +68,8 @@ class ADBInstallWindow(BaseWindow):
                         Instalação local (sem permissões de administrador)
                         Compatível com Windows, macOS e Linux
 
-                        Deseja continuar com a instalação?"""
+                        Deseja continuar com a instalação?
+                    """
                                 
         ctk.CTkLabel(
             info_frame,
@@ -77,6 +78,7 @@ class ADBInstallWindow(BaseWindow):
             wraplength=info_frame.winfo_width(),
             anchor="w"
         ).pack(padx=15, pady=15, anchor="w")
+        
     def _build_progress(self):
         self.progress_frame = ctk.CTkFrame(self.main_frame)        
         self.status_label = ctk.CTkLabel(

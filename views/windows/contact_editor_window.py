@@ -9,12 +9,14 @@ class ContactEditorWindow(BaseListWindow):
         self,
         parent: ctk.CTk,
         contacts: List[Contact],
-        on_save: Optional[Callable] = None
+        on_save: Optional[Callable] = None,
+        send_all_mode: bool = False  # Novo parâmetro
     ):
         self._on_save = on_save
         self._modified = False
         self._add_dialog_open = False  # Flag para controlar diálogo de adicionar
         self._editing_row = False  # Flag para controlar edição de linha
+        self._send_all_mode = send_all_mode  # Guarda o modo
         
         columns = [
             {"title": "Nome", "key": "nome", "weight": 1, "editable": True, "min_width": 200},
@@ -89,10 +91,14 @@ class ContactEditorWindow(BaseListWindow):
         return f"Total: {total} | Ativos: {active}"
     
     def _get_row_color(self, item: Contact) -> str:
+        # Se estiver no modo "Enviar para Todos", ignora o campo 'selecionado'
+        # e trata todos os contactos ativos como se estivessem selecionados
+        is_deselected = (not item.selecionado) if not self._send_all_mode else False
+        
         return self.theme.get_contact_color(
             item.ativo, 
             item.ultimo_envio, 
-            not item.selecionado
+            is_deselected
         )
     
     def _on_contact_edited(self, row_idx: int, key: str, old_val, new_val):
@@ -109,7 +115,8 @@ class ContactEditorWindow(BaseListWindow):
         # Força recriação de células de texto
         for col_idx, col in enumerate(self.columns):
             if col.get("type") not in ("toggle", "checkbox"):
-                self._recreate_cell(row_idx, col_idx, col.get("key", ""))
+                self._recreate_cell(row_idx, col_idx, col.get("key", "")) # Atualiza cor da célula
+                
     def _add_contact(self):
         # Marca que o diálogo está aberto
         self._add_dialog_open = True

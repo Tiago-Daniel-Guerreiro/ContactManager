@@ -1,12 +1,7 @@
 import customtkinter as ctk
-from typing import Optional, List, Union, TYPE_CHECKING
-import threading
-import json
-import os
-import webbrowser
+from typing import Optional, List
 from pathlib import Path
 from datetime import datetime
-from dataclasses import dataclass
 
 from views.base.base_window import BaseMainWindow
 from views.windows.contact_editor_window import ContactEditorWindow
@@ -17,126 +12,36 @@ from config.settings import ThemeManager
 from controllers.contact_controller import ContactController
 from controllers.services.data_handler import DataHandler
 from controllers.services.contact_service import ContactService
+from controllers.services.config_service import ConfigService
+from controllers.services.message_service import MessageService
+from utils.get_patch import get_base_dir
 
-if TYPE_CHECKING:
-    from controllers.services.whatsapp_sender import WhatsAppSender
-    from controllers.services.sms_sender import SMSSender
-
-@dataclass
-class SendReport:
-    contact_name: str
-    contact_phone: str
-    status: str  # 'sucesso', 'erro'
-    message: str
-    timestamp: str
-
-class ReportGenerator:    
-    @staticmethod
-    def generate_html_report(reports: List[SendReport], method: str, output_file: Path) -> bool:
-        try:
-            successful = sum(1 for r in reports if r.status == "sucesso")
-            total = len(reports)
-            
-            html_content = f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>Relatório de Envios</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }}
-        .header {{ background: #2c3e50; color: white; padding: 20px; border-radius: 5px; }}
-        .header h1 {{ margin: 0; }}
-        .summary {{ background: white; padding: 15px; margin: 20px 0; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }}
-        .success {{ color: #27ae60; font-weight: bold; }}
-        .error {{ color: #e74c3c; font-weight: bold; }}
-        table {{ width: 100%; border-collapse: collapse; background: white; }}
-        th {{ background: #34495e; color: white; padding: 12px; text-align: left; }}
-        td {{ padding: 10px; border-bottom: 1px solid #ecf0f1; }}
-        tr:hover {{ background: #f8f9fa; }}
-        .status-success {{ background: #d5f4e6; color: #27ae60; }}
-        .status-error {{ background: #fadbd8; color: #e74c3c; }}
-        .footer {{ margin-top: 30px; padding-top: 20px; border-top: 1px solid #ecf0f1; color: #7f8c8d; font-size: 12px; }}
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>Relatório de Envios</h1>
-        <p>Método: <strong>{method.upper()}</strong></p>
-    </div>
-    
-    <div class="summary">
-        <h2>Resumo</h2>
-        <p>Total de Contactos: <strong>{total}</strong></p>
-        <p class="success">Sucesso: {successful}/{total}</p>
-        <p class="error">Erros: {total - successful}/{total}</p>
-        <p>Taxa de Sucesso: <strong>{(successful/total*100):.1f}%</strong></p>
-    </div>
-    
-    <h2>Detalhes</h2>
-    <table>
-        <thead>
-            <tr>
-                <th>Nome</th>
-                <th>Telefone</th>
-                <th>Status</th>
-                <th>Mensagem</th>
-                <th>Data/Hora</th>
-            </tr>
-        </thead>
-        <tbody>
-"""
-            
-            for report in reports:
-                status_class = "status-success" if report.status == "sucesso" else "status-error"
-                status_text = "SUCESSO" if report.status == "sucesso" else "ERRO"
-                html_content += f"""            <tr>
-                <td>{report.contact_name}</td>
-                <td>{report.contact_phone}</td>
-                <td class="{status_class}">{status_text}</td>
-                <td>{report.message}</td>
-                <td>{report.timestamp}</td>
-            </tr>
-"""
-            html_content += """        </tbody>
-    </table>
-    
-    <div class="footer">
-        <p>Relatório gerado automaticamente pela aplicação de Mensagens Automáticas</p>
-        <p>Data: """ + datetime.now().strftime("%d/%m/%Y %H:%M:%S") + """</p>
-    </div>
-</body>
-</html>
-"""
-            
-            # Salva arquivo HTML
-            with open(output_file, 'w', encoding='utf-8') as f:
-                f.write(html_content)
-            
-            return True
-        except Exception as e:
-            print(f"Erro ao gerar relatório: {e}")
-            return False
-
-class MainWindow(BaseMainWindow):
+class MainWindow(BaseMainWindow):    
     def __init__(self):
         self.theme = ThemeManager()
         
-        # Controller e Data Handler
+        # Controllers e Services
         self.controller = ContactController()
         self.data_handler = DataHandler()
         self.controller.set_data_handler(self.data_handler)
         
-        # Service (lógica de negócio centralizada)
+        # Serviços especializados
         self.service = ContactService(self.data_handler)
+        self.config_service = ConfigService.create_default_config(get_base_dir())
+        self.message_service = MessageService()
+        
+        # Injeta serviços no controller
+        self.controller.set_message_service(self.message_service)
         
         # Estado da aplicação
         self.is_sending = False
         self.selected_contacts: List[Contact] = []
-        self.sender: Optional[Union['WhatsAppSender', 'SMSSender']] = None
         
         # Configura callbacks
         self.controller.set_callbacks(
             on_contacts_changed=self._on_contacts_changed,
+            on_send_progress=self._on_send_progress,
+            on_send_complete=self._on_send_complete,
             on_log=self._log
         )
         
@@ -374,6 +279,19 @@ class MainWindow(BaseMainWindow):
         
     def _toggle_send_all_mode(self):
         if self.send_all_var.get():
+            # Modo "Enviar para Todos" ATIVO: marca todos os contactos ativos como selecionados
+            updates = 0
+            for contact in self.service.get_active_contacts():
+                if not contact.selecionado:
+                    contact.editar('selecionado', True)
+                    updates += 1
+            
+            if updates > 0:
+                self._log(f"Modo 'Enviar para Todos': {updates} contacto(s) marcados como selecionados")
+                # Auto-save para persistir as alterações
+                self.after(500, self._auto_save_contacts)
+            
+            # Esconde opções de seleção manual
             self.select_contacts_btn.grid_remove()
             self.selection_status_label.grid_remove()
         else:
@@ -397,14 +315,15 @@ class MainWindow(BaseMainWindow):
             messagebox.showwarning("Aviso", "Não há contactos disponíveis")
             return
         
-        selection_window = ContactSelectionWindow(
+        _ = ContactSelectionWindow(
             parent=self,
             contacts=available_contacts,
             on_confirm=self._on_contacts_selected,
             title="Selecionar Contactos para Envio"
         )
+
     def _on_contacts_selected(self, selected_contacts):        
-        # MELHORIA: Usar 'telemovel' (original) garante unicidade, mesmo se o número for inválido
+        # Usar 'telemovel' (original) garante unicidade, mesmo se o número for inválido
         selected_phones = {c.telemovel for c in selected_contacts}
         
         updates = 0
@@ -446,6 +365,12 @@ class MainWindow(BaseMainWindow):
             self.service.contacts = contacts
         else:
             self.service.contacts = self.controller.contacts
+        
+        # Se "Enviar para Todos" está ativo, marca todos como selecionados
+        if self.send_all_var.get():
+            for contact in self.service.get_active_contacts():
+                if not contact.selecionado:
+                    contact.editar('selecionado', True)
         
         self._update_contacts_label()
         self.selected_contacts = []
@@ -576,7 +501,12 @@ class MainWindow(BaseMainWindow):
                 self.controller._contacts = contacts
                 self._on_contacts_changed(contacts)
             
-            self._editor_window = ContactEditorWindow(self, self.service.contacts, on_save)
+            self._editor_window = ContactEditorWindow(
+                self, 
+                self.service.contacts, 
+                on_save,
+                send_all_mode=self.send_all_var.get()  # Passa o modo atual
+            )
         except Exception as e:
             self._log(f"Erro ao abrir editor: {e}")
     
@@ -589,12 +519,17 @@ class MainWindow(BaseMainWindow):
             mensagem_geral = self.message_text.get("1.0", "end-1c").strip()
             mensagem_boas_vindas = self.welcome_text.get("1.0", "end-1c").strip()
             
+            # Converte \n literal em quebra de linha real para preview
+            mensagem_geral = mensagem_geral.replace('\\n', '\n')
+            mensagem_boas_vindas = mensagem_boas_vindas.replace('\\n', '\n')
+            
             self._preview_window = PreviewDashboardWindow(
                 self, 
                 self.service.contacts, 
                 mensagem_geral=mensagem_geral,
                 mensagem_boas_vindas=mensagem_boas_vindas,
-                read_only=True
+                read_only=True,
+                send_all_mode=self.send_all_var.get()  # Passa o modo atual
             )
         except Exception as e:
             self._log(f"Erro ao abrir preview: {e}")
@@ -605,289 +540,110 @@ class MainWindow(BaseMainWindow):
             return
 
         method = self.method_var.get()
-        if method == "whatsapp":
-            from controllers.services.whatsapp_sender import WhatsAppSender
-            try:
-                whatsapp_sender = WhatsAppSender()
-                self.sender = whatsapp_sender
-                self._log("Inicializando WhatsApp...")
-                success, msg = whatsapp_sender.initialize(log_callback=self._log)
-                if not success:
-                    self._log(f"Erro: {msg}")
-                    return
-
-                self._log("Aguardando login (escaneie o QR code se necessário)...")
-                # Aguardar login em thread separada para não bloquear UI
-                def wait_login_thread():
-                    success, msg = whatsapp_sender.wait_for_login(timeout=120, log_callback=self._log)
-                    if success:
-                        self._log("WhatsApp: Login confirmado")
-                    else:
-                        self._log(f"Erro no WhatsApp: {msg}")
-
-                login_thread = threading.Thread(target=wait_login_thread, daemon=True)
-                login_thread.start()
-            except Exception as e:
-                self._log(f"Erro: {str(e)}")
-        elif method == "sms":
+        
+        # Usa o controller para inicializar
+        if method == "sms":
+            # SMS precisa da janela de inicialização
             from controllers.services.sms_sender import SMSSender
             from views.windows.sms_init_window import SMSInitializationWindow
 
             try:
-                sms_sender = SMSSender()
-                self.sender = sms_sender
-                
-                # Abre janela de inicialização SMS
+                # Cria sender se não existir
+                if not isinstance(self.controller._sender, SMSSender):
+                    sender = SMSSender()
+                    self.controller.set_sender(sender)
+
                 def on_sms_ready():
                     self._log("SMS: Dispositivo pronto para envio")
-                
+                    
                 self._sms_init_window = SMSInitializationWindow(
                     self, 
-                    sms_sender, 
+                    self.controller._sender, 
                     on_success=on_sms_ready
                 )
             except Exception as e:
-                self._log(f"Erro: {str(e)}")
+                self._log(f"Erro ao inicializar SMS: {e}")
+        else:
+            # WhatsApp usa o controller (aguarda login automaticamente)
+            self.controller.initialize_sender(method, on_complete=None)
 
     def _start_sending(self):
+        # Validações
         if not self.service.contacts:
             self._log("Carregue contactos primeiro")
             return
         
-        if not self.message_text.get("1.0", "end-1c").strip():
-            self._log("Escreva uma mensagem")
-            return
+        message_template = self.message_text.get("1.0", "end-1c").strip()
+        welcome_template = self.welcome_text.get("1.0", "end-1c").strip()
         
         method = self.method_var.get()
+        delay = int(self.delay_slider.get())
         
-        # Verifica se o sender está inicializado
-        if method == "whatsapp":
-            if not hasattr(self, 'sender') or self.sender is None:
-                self._log("Inicialize o WhatsApp primeiro (clique em 'Inicializar')")
-                return
-            # Verifica se é WhatsAppSender e está logado
-            whatsapp_sender: 'WhatsAppSender' = self.sender  # type: ignore
-            if not hasattr(whatsapp_sender, 'is_logged_in') or not whatsapp_sender.is_logged_in:
-                self._log("Aguarde o login do WhatsApp ou inicialize novamente")
-                return
-        elif method == "sms":
-            if not hasattr(self, 'sender') or self.sender is None:
-                self._log("Inicialize o SMS primeiro (clique em 'Inicializar')")
-                return
-            # Verifica se é SMSSender e está conectado
-            sms_sender: 'SMSSender' = self.sender  # type: ignore
-            if not hasattr(sms_sender, 'device_connected') or not sms_sender.device_connected:
-                self._log("Conecte um dispositivo Android e inicialize")
-                return
+        # Determina contactos elegíveis
+        send_all_mode = self.send_all_var.get()
+        contacts_to_send = self._get_contacts_to_send(send_all_mode)
         
+        if not contacts_to_send:
+            mode = "todos os contactos" if send_all_mode else "contactos selecionados"
+            self._log(f"Nenhum contacto elegível em {mode}")
+            return
+        
+        # Atualiza UI
         self.is_sending = True
         self.start_btn.configure(state="disabled")
         self.stop_btn.configure(state="normal")
         
-        message = self.message_text.get("1.0", "end-1c").strip()
-        
-        thread = threading.Thread(
-            target=self._send_messages_thread,
-            args=(method, message),
-            daemon=True
+        # Delega tudo para o controller
+        self.controller.start_sending(
+            method=method,
+            contacts=contacts_to_send,
+            message_template=message_template,
+            welcome_template=welcome_template,
+            delay=delay,
+            check_stop_response=(method == "whatsapp")
         )
-        thread.start()
     
-    def _send_messages_thread(self, method: str, message: str):
-        try:
-            # Seleciona contactos baseado no toggle
-            if self.send_all_var.get():
-                contacts_to_send = self.service.get_sendable_contacts("all")
+    def _get_contacts_to_send(self, send_all_mode: bool) -> List[Contact]:
+        if send_all_mode:
+            # Modo "Enviar para Todos": ignora seleção
+            return [c for c in self.service.get_active_contacts() 
+                   if c.ativo and c.is_valid]
+        else:
+            # Modo "Seleção Manual"
+            if not self.selected_contacts:
+                # Usa os marcados como 'selecionado' no JSON
+                return [c for c in self.service.get_active_contacts() 
+                       if c.selecionado and c.verificar_enviar_mensagem_geral()]
             else:
-                # Se não há seleção manual, usa os marcados como 'selecionado' no JSON
-                if not self.selected_contacts:
-                    contacts_to_send = [c for c in self.service.get_active_contacts() 
-                                       if c.selecionado and c.verificar_enviar_mensagem_geral()]
-                else:
-                    contacts_to_send = [c for c in self.selected_contacts if c.verificar_enviar_mensagem_geral()]
-                            
-            total = len(contacts_to_send)
-            
-            if total == 0:
-                mode = "todos os contactos" if self.send_all_var.get() else "contactos selecionados"
-                self._log(f"Nenhum contacto elegível em {mode}")
-                self._stop_sending()
-                return
-            
-            self._log(f"Enviando para {total} contactos via {method.upper()}...")
-            
-            if method == "whatsapp":
-                self._send_whatsapp_messages(contacts_to_send, message, total)
-            elif method == "sms":
-                self._send_sms_messages(contacts_to_send, message, total)
-        except Exception as e:
-            self._log(f"Erro: {str(e)}")
-        finally:
-            self.is_sending = False
-            self.start_btn.configure(state="normal")
-            self.stop_btn.configure(state="disabled")
-    
-    def _send_whatsapp_messages(self, contacts, message: str, total: int):
-        from controllers.services.whatsapp_sender import WhatsAppSender
-        
-        if not hasattr(self, 'sender') or self.sender is None:
-            self.sender = WhatsAppSender()
-            try:
-                self.sender.initialize()
-            except Exception as e:
-                self._log(f"Erro: {str(e)}")
-                return
-        
-        reports = []
-        sent = 0
-        
-        for idx, contact in enumerate(contacts):
-            if not self.is_sending:
-                self._log("Cancelado")
-                break
-            
-            try:
-                result = self.sender.send_message(
-                    phone=contact.telemovel,
-                    message=message,
-                    log_callback=self._log
-                )
-                
-                if result.success:
-                    sent += 1
-                    contact.ultimo_envio = result.timestamp
-                    self._log(f"[{idx+1}/{total}] {contact.nome}: OK")
-                    reports.append(SendReport(
-                        contact_name=contact.nome,
-                        contact_phone=contact.telemovel_normalizado,
-                        status="sucesso",
-                        message="Enviado",
-                        timestamp=result.timestamp
-                    ))
-                else:
-                    reports.append(SendReport(
-                        contact_name=contact.nome,
-                        contact_phone=contact.telemovel_normalizado,
-                        status="erro",
-                        message=result.message,
-                        timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    ))
-                
-                # Atualiza progress bar
-                progress = (idx + 1) / total
-                self.after(0, lambda p=progress: self.progress.set(p))
-            except Exception as e:
-                self._log(f"[{idx+1}/{total}] {contact.nome}: Erro - {str(e)}")
-                reports.append(SendReport(
-                    contact_name=contact.nome,
-                    contact_phone=contact.telemovel_normalizado,
-                    status="erro",
-                    message=str(e),
-                    timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                ))
-        
-        self._log(f"Concluído: {sent}/{total} mensagens enviadas")
-        self._auto_save_contacts()
-        
-        if reports:
-            self._generate_and_open_report(reports, "whatsapp")
-    
-    def _send_sms_messages(self, contacts, message: str, total: int):
-        from controllers.services.sms_sender import SMSSender
-        
-        if not hasattr(self, 'sender') or self.sender is None:
-            self.sender = SMSSender()
-            self.sender.find_adb()
-            success, msg = self.sender.check_device()
-            if not success:
-                self._log(f"Erro: {msg}")
-                return
-        
-        reports = []
-        sent = 0
-        
-        for idx, contact in enumerate(contacts):
-            if not self.is_sending:
-                self._log("Cancelado")
-                break
-            
-            try:
-                result = self.sender.send_message(
-                    phone=contact.telemovel,
-                    message=message,
-                    log_callback=self._log
-                )
-                
-                if result.success:
-                    sent += 1
-                    contact.ultimo_envio = result.timestamp
-                    self._log(f"[{idx+1}/{total}] {contact.nome}: OK")
-                    reports.append(SendReport(
-                        contact_name=contact.nome,
-                        contact_phone=contact.telemovel_normalizado,
-                        status="sucesso",
-                        message="Enviada",
-                        timestamp=result.timestamp
-                    ))
-                else:
-                    reports.append(SendReport(
-                        contact_name=contact.nome,
-                        contact_phone=contact.telemovel_normalizado,
-                        status="erro",
-                        message=result.message,
-                        timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    ))
-                
-                # Atualiza progress bar
-                progress = (idx + 1) / total
-                self.after(0, lambda p=progress: self.progress.set(p))
-            except Exception as e:
-                self._log(f"[{idx+1}/{total}] {contact.nome}: Erro - {str(e)}")
-                reports.append(SendReport(
-                    contact_name=contact.nome,
-                    contact_phone=contact.telemovel_normalizado,
-                    status="erro",
-                    message=str(e),
-                    timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                ))
-        
-        self._log(f"Concluído: {sent}/{total} mensagens enviadas")
-        self._auto_save_contacts()
-        
-        if reports:
-            self._generate_and_open_report(reports, "sms")
-    
-    def _generate_and_open_report(self, reports: List[SendReport], method: str):
-        try:
-            reports_dir = Path(__file__).parent.parent.parent / "reports"
-            reports_dir.mkdir(parents=True, exist_ok=True)
-            
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            report_file = reports_dir / f"relatorio_{method}_{timestamp}.html"
-            
-            if ReportGenerator.generate_html_report(reports, method, report_file):
-                self._log(f"Relatório: {report_file.name}")
-                
-                try:
-                    if os.name == 'nt':
-                        os.startfile(str(report_file))
-                    else:
-                        webbrowser.open(f'file://{report_file}')
-                except Exception as e:
-                    self._log(f"Não foi possível abrir: {e}")
-        except Exception as e:
-            self._log(f"Erro ao gerar relatório: {e}")
+                # Usa a lista de contactos selecionados manualmente
+                return [c for c in self.selected_contacts 
+                       if c.verificar_enviar_mensagem_geral()]
     
     def _stop_sending(self):
+        self.controller.stop_sending()
         self.is_sending = False
         self.start_btn.configure(state="normal")
         self.stop_btn.configure(state="disabled")
-        self._log("Parado")
+    
+    def _on_send_progress(self, progress: float, current: int, total: int):
+        self.after(0, lambda: self.progress.set(progress))
+        self.after(0, lambda: self.status_label.configure(
+            text=f"Enviando: {current}/{total}"
+        ))
+    
+    def _on_send_complete(self, sent: int, failed: int, total: int):
+        self.is_sending = False
+        self.after(0, lambda: self.start_btn.configure(state="normal"))
+        self.after(0, lambda: self.stop_btn.configure(state="disabled"))
+        self.after(0, lambda: self.status_label.configure(
+            text=f"Concluído: {sent} enviados, {failed} falhados"
+        ))
         
     def _log(self, msg: str):
         timestamp = datetime.now().strftime("%H:%M:%S")
         self.log_text.insert("end", f"[{timestamp}] {msg}\n")
         self.log_text.see("end")
+        print(f"[{timestamp}] {msg}")
     
     def _update_contacts_label(self):
         stats = self.service.get_stats()
@@ -897,7 +653,8 @@ class MainWindow(BaseMainWindow):
     
     def _auto_save_contacts(self):
         try:
-            default_file = Path(__file__).parent.parent.parent / "data" / "contactos.json"
+            default_file = get_base_dir() / "data" / "contactos.json"
+            default_file.parent.mkdir(parents=True, exist_ok=True)
             success, msg = self.service.save_json(str(default_file))
             if success:
                 self._log("Auto-salvo")
@@ -906,40 +663,52 @@ class MainWindow(BaseMainWindow):
     
     def _load_config(self):
         try:
-            config_file = Path(__file__).parent.parent.parent / "config" / "user_config.json"
+            config = self.config_service.load()
             
-            if config_file.exists():
-                with open(config_file, 'r', encoding='utf-8') as f:
-                    config = json.load(f)
-                
-                if "method" in config:
-                    self.method_var.set(config["method"])
-                if "delay" in config:
-                    self.delay_slider.set(config["delay"])
-                    self.delay_label.configure(text=f"{config['delay']}s")
-                if "message" in config:
-                    self.message_text.delete("1.0", "end")
-                    self.message_text.insert("1.0", config["message"])
-                if "welcome" in config:
-                    self.welcome_text.delete("1.0", "end")
-                    self.welcome_text.insert("1.0", config["welcome"])
-                
-                # Carregar URL do Google Sheets se existir
-                if "sheets_url" in config and config["sheets_url"]:
-                    self.excel_entry.delete(0, "end")
-                    self.excel_entry.insert(0, config["sheets_url"])
+            # Aplica configurações na UI
+            self.method_var.set(config.get("method", "whatsapp"))
             
-            # Carregar contactos automaticamente
+            delay = config.get("delay", 3)
+            self.delay_slider.set(delay)
+            self.delay_label.configure(text=f"{delay}s")
+            
+            message = config.get("message", "Olá {nome}!")
+            self.message_text.delete("1.0", "end")
+            self.message_text.insert("1.0", message)
+            
+            welcome = config.get("welcome", "")
+            self.welcome_text.delete("1.0", "end")
+            self.welcome_text.insert("1.0", welcome)
+            
+            sheets_url = config.get("sheets_url", "")
+            if sheets_url:
+                self.excel_entry.delete(0, "end")
+                self.excel_entry.insert(0, sheets_url)
+            
+            # Carregar contactos e sheets automaticamente
             self._auto_load_contacts()
-            
-            # Carregar Google Sheets automaticamente se URL está configurada
             self.after(500, self._auto_load_sheets)
+            
         except Exception as e:
             self._log(f"Erro ao carregar config: {e}")
     
+    def _save_config(self):
+        try:
+            config = {
+                "method": self.method_var.get(),
+                "delay": int(self.delay_slider.get()),
+                "message": self.message_text.get("1.0", "end-1c"),
+                "welcome": self.welcome_text.get("1.0", "end-1c"),
+                "sheets_url": self.excel_entry.get().strip()
+            }
+            
+            self.config_service.save(config)
+        except Exception as e:
+            self._log(f"Erro ao salvar config: {e}")
+    
     def _auto_load_contacts(self):
         try:
-            default_file = Path(__file__).parent.parent.parent / "data" / "contactos.json"
+            default_file = get_base_dir() / "data" / "contactos.json"
             
             if default_file.exists():
                 success, msg, warnings = self.service.load_json(str(default_file), merge=False)
@@ -951,7 +720,7 @@ class MainWindow(BaseMainWindow):
                 else:
                     self._log(f"Erro ao carregar contactos: {msg}")
             else:
-                # Se não existe, oferece ao utilizador selecionar um ficheiro
+                # Oferece ao utilizador selecionar um ficheiro
                 from tkinter import messagebox, filedialog
                 
                 if messagebox.askyesno(
@@ -978,30 +747,9 @@ class MainWindow(BaseMainWindow):
             self._log(f"Erro ao carregar contactos: {e}")
     
     def _auto_load_sheets(self):
-        """Carrega Google Sheets automaticamente se URL está configurada"""
         url = self.excel_entry.get().strip()
-        if not url:
-            return
-        
-        self._load_excel()
-    
-    def _save_config(self):
-        try:
-            config_file = Path(__file__).parent.parent.parent / "config" / "user_config.json"
-            config_file.parent.mkdir(parents=True, exist_ok=True)
-            
-            config = {
-                "method": self.method_var.get(),
-                "delay": int(self.delay_slider.get()),
-                "message": self.message_text.get("1.0", "end-1c"),
-                "welcome": self.welcome_text.get("1.0", "end-1c"),
-                "sheets_url": self.excel_entry.get().strip()  # Salva URL do Google Sheets
-            }
-            
-            with open(config_file, 'w', encoding='utf-8') as f:
-                json.dump(config, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            pass
+        if url:
+            self._load_excel()
     
     def _on_closing(self):
         self._save_config()

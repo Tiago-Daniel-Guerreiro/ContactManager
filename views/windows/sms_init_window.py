@@ -4,6 +4,7 @@ import threading
 import time
 
 from views.base.base_window import BaseWindow
+from views.windows.adb_install_window import ADBInstallWindow
 
 class SMSInitializationWindow(BaseWindow):    
     def __init__(
@@ -20,17 +21,18 @@ class SMSInitializationWindow(BaseWindow):
         self.device_detected = False
         self.adb_authorized = False
         self.initialization_complete = False
+        self.adb_checked = False
         
         super().__init__(
             parent,
             title="Configurar Envio de SMS",
-            size=(700, 600),
+            size=(700, 700),
             resizable=(False, False),
             modal=True
         )
         
-        # Inicia monitoramento após construção
-        self.after(100, self._start_monitoring)
+        # Verifica ADB antes de iniciar monitoramento
+        self.after(100, self._check_adb)
     
     def _build_ui(self):
         # Configurar grid
@@ -80,23 +82,44 @@ class SMSInitializationWindow(BaseWindow):
             title="Passo 2: Ativar Depuração USB",
             description="Aguardando passo 1..."
         )
-        self.step2_frame = self._create_step_frame(
-            content,
-            row=1,
-            icon="⏸️",
-            title="Passo 2: Ativar Depuração USB",
-            description="Aguardando passo 1..."
-        )
+        
         self.step3_frame = self._create_step_frame(
             content,
             row=2,
             icon="⚙️",
-            title="Passo 3: Desativar RCS (Chat) no app de mensagens (MANUALMENTE)",
-            description="Acesse o app de mensagens do Android, vá em Configurações > Chat/RCS desative a opção de chat/RCS para garantir o envio correto de SMS."
+            title="Passo 3: Desativar RCS (Chat) no app de mensagens",
+            description="Importante: Desative o RCS/Chat no app de mensagens para garantir o envio correto de SMS."
         )
+        
+        # Frame de instruções (inicialmente oculto)
         self.instructions_frame = ctk.CTkFrame(content)
         
         self._build_instructions()
+    
+    def _check_adb(self):
+        def check_thread():
+            adb_found, msg = self.sms_sender.find_adb()
+            
+            if not adb_found:
+                # ADB não encontrado, mostra janela de instalação
+                self.after(0, self._show_adb_install_window)
+            else:
+                # ADB encontrado, inicia monitoramento
+                self.after(0, self._start_monitoring)
+        
+        threading.Thread(target=check_thread, daemon=True).start()
+    
+    def _show_adb_install_window(self):
+        def on_adb_installed(adb_path: str):
+            self.sms_sender.adb_path = adb_path
+            self.adb_checked = True
+            self.after(100, self._start_monitoring)
+        
+        # Mostra janela de instalação
+        _ = ADBInstallWindow(
+            parent=self.winfo_toplevel(),  # type: ignore
+            on_success=on_adb_installed
+        )
     
     def _create_step_frame(
         self,
@@ -140,34 +163,83 @@ class SMSInitializationWindow(BaseWindow):
         }
     
     def _build_instructions(self):
-        scroll = ctk.CTkScrollableFrame(self.instructions_frame, height=150)
+        scroll = ctk.CTkScrollableFrame(self.instructions_frame, height=200)
         scroll.pack(fill="both", expand=True, padx=10, pady=10)
         
+        # Título principal
         ctk.CTkLabel(
             scroll,
-            text="Como ativar a Depuração USB:",
-            font=("", 13, "bold"),
-            anchor="w"
-        ).pack(anchor="w", pady=(0, 10))
+            text="Como ativar a Depuração USB no Android:",
+            font=("", 14, "bold"),
+            anchor="w",
+            text_color="#3b82f6"
+        ).pack(anchor="w", pady=(5, 15))
         
+        # Instruções detalhadas
         instructions = [
-            "1. Abra as Definições no telemóvel",
-            "2. Vá para 'Acerca do telefone' ou 'Sobre o dispositivo'",
-            "3. Toque 7 vezes em 'Número de compilação' para ativar modo programador",
-            "4. Volte às Definições e procure 'Opções de programador'",
-            "5. Ative a 'Depuração USB' ou 'USB debugging'",
-            "6. Aceite a autorização que aparecerá no telemóvel",
-            "",
-            "Dica: Marque 'Permitir sempre' no telemóvel"
+            ("1. Ativar Modo de Programador:", [
+                "• Abra as 'Definições' no seu telemóvel Android",
+                "• Procure por 'Acerca do telefone' ou 'Sobre o dispositivo'",
+                "• Encontre 'Número de compilação' ou 'Versão de compilação'",
+                "• Toque 7 VEZES seguidas no 'Número de compilação'",
+                "• Aparecerá uma mensagem: 'Agora é um programador!'"
+            ]),
+            ("", []),  # Espaço
+            ("2. Ativar Depuração USB:", [
+                "• Volte ao menu principal de Definições",
+                "• Procure por 'Opções de programador' ou 'Opções de desenvolvedor'",
+                "• Entre nesse menu",
+                "• Encontre 'Depuração USB' ou 'USB debugging'",
+                "• ATIVE a opção 'Depuração USB'"
+            ]),
+            ("", []),  # Espaço
+            ("3. Autorizar o Computador:", [
+                "• Quando ligar o telemóvel ao PC via USB",
+                "• Aparecerá um aviso no telemóvel perguntando:",
+                "  'Permitir depuração USB?'",
+                "• MARQUE a caixa 'Permitir sempre deste computador'",
+                "• Toque em 'PERMITIR' ou 'OK'"
+            ]),
+            ("", []),  # Espaço
+            ("⚠️ Importante:", [
+                "• Use um cabo USB de DADOS (não apenas de carregamento)",
+                "• Alguns cabos só servem para carregar e não funcionam!",
+                "• Se não aparecer nada no telemóvel, experimente outro cabo USB"
+            ])
         ]
         
-        for instruction in instructions:
-            ctk.CTkLabel(
-                scroll,
-                text=instruction,
-                anchor="w",
-                wraplength=520
-            ).pack(anchor="w", pady=2)
+        for title, steps in instructions:
+            if title:
+                title_label = ctk.CTkLabel(
+                    scroll,
+                    text=title,
+                    font=("", 12, "bold"),
+                    anchor="w",
+                    wraplength=620
+                )
+                title_label.pack(anchor="w", pady=(5, 3))
+            
+            for step in steps:
+                step_label = ctk.CTkLabel(
+                    scroll,
+                    text=step,
+                    anchor="w",
+                    wraplength=600,
+                    font=("", 11)
+                )
+                step_label.pack(anchor="w", padx=(10, 0), pady=1)
+        
+        # Nota final
+        note_frame = ctk.CTkFrame(scroll, fg_color="#2d2d2d")
+        note_frame.pack(fill="x", pady=(15, 5))
+        
+        ctk.CTkLabel(
+            note_frame,
+            text="Dica: Estas opções variam ligeiramente entre marcas (Samsung, Xiaomi, Huawei, etc.)\nmas o processo geral é sempre o mesmo.",
+            font=("", 10),
+            text_color="gray",
+            justify="left"
+        ).pack(padx=10, pady=10)
         
         # Botão de retry
         self.retry_btn = ctk.CTkButton(
@@ -246,7 +318,7 @@ class SMSInitializationWindow(BaseWindow):
                 time.sleep(2)
     
     def _update_step1_detected(self):
-        self.step1_frame["icon"].configure(text="")
+        self.step1_frame["icon"].configure(text="✅")
         self.step1_frame["description"].configure(
             text="Dispositivo Android conectado!",
             text_color="green"
@@ -256,6 +328,13 @@ class SMSInitializationWindow(BaseWindow):
         self.step2_frame["icon"].configure(text="⏳")
         self.step2_frame["description"].configure(
             text="Verificando depuração USB...",
+            text_color="gray"
+        )
+        
+        # Atualiza passo 3
+        self.step3_frame["icon"].configure(text="⏸️")
+        self.step3_frame["description"].configure(
+            text="Aguardando autorização...",
             text_color="gray"
         )
     
@@ -279,16 +358,16 @@ class SMSInitializationWindow(BaseWindow):
     def _update_step2_unauthorized(self):
         self.step2_frame["icon"].configure(text="⚠️")
         self.step2_frame["description"].configure(
-            text="Depuração USB não ativada ou não autorizada",
+            text="Depuração USB não ativada ou não autorizada - Veja as instruções abaixo",
             text_color="orange"
         )
         
-        # Mostra instruções
+        # Mostra instruções com destaque
         if not self.instructions_frame.winfo_viewable():
-            self.instructions_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=10)
+            self.instructions_frame.grid(row=3, column=0, sticky="nsew", padx=10, pady=10)
     
     def _update_step2_authorized(self, device_id: str):
-        self.step2_frame["icon"].configure(text="")
+        self.step2_frame["icon"].configure(text="✅")
         
         # Obtém info do dispositivo
         model = ""
@@ -303,6 +382,13 @@ class SMSInitializationWindow(BaseWindow):
         self.step2_frame["description"].configure(
             text=f"Autorizado! Dispositivo: {full_name}",
             text_color="green"
+        )
+        
+        # Atualiza passo 3
+        self.step3_frame["icon"].configure(text="⚠️")
+        self.step3_frame["description"].configure(
+            text="Importante: Desative o RCS/Chat no app de mensagens manualmente!",
+            text_color="#FFA500"
         )
         
         # Esconde instruções

@@ -1,16 +1,19 @@
 
+"""
+Data Handler - Gerenciamento de dados de contactos e envios
+"""
 import json
+import re
+import os
 import hashlib
-import pandas as pd
-import requests
 from io import BytesIO
 from datetime import datetime, date
 from typing import Optional, Set, List, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
-import re
-import os
 
+import pandas as pd
+import requests
 
 class SendStatus(Enum):
     PENDING = "pendente"
@@ -18,7 +21,6 @@ class SendStatus(Enum):
     FAILED = "falhou"
     SKIPPED = "ignorado"
     DESELECTED = "bloqueado"
-
 
 @dataclass
 class ContactData:
@@ -63,7 +65,6 @@ class ContactData:
         return ""  # Número inválido
     
     def _validate(self) -> bool:
-        """Valida se o contacto é válido"""
         if not self.nome or not self.nome.strip():
             return False
         if not self.contacto_normalizado:
@@ -265,7 +266,6 @@ class DataHandler:
         return True, "OK"
     
     def mark_as_inactive(self, phone: str) -> bool:
-        """Marca contacto como inativo"""
         normalized = ContactData(nome="temp", contacto_original=str(phone)).contacto_normalizado
         for contact in self.contacts:
             if contact.contacto_normalizado == normalized:
@@ -279,6 +279,11 @@ class DataHandler:
             if not filepath or not filepath.endswith('.json'):
                 filepath = f'contactos_backup_{date.today().isoformat()}.json'
             
+            # Garante que o diretório existe
+            from pathlib import Path
+            file_path = Path(filepath)
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            
             # Salva apenas contactos não deletados com os campos necessários
             data = [
                 {
@@ -286,7 +291,8 @@ class DataHandler:
                     "telemovel": c.contacto_original,
                     "telemovel_normalizado": c.contacto_normalizado,
                     "ultimo_envio": c.ultimo_envio,
-                    "ativo": c.ativo
+                    "ativo": c.ativo,
+                    "selecionado": c.selecionado
                 }
                 for c in self.contacts
             ]

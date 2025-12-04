@@ -68,14 +68,10 @@ class BaseListWindow(BaseWindow):
             else:
                 header_frame.grid_columnconfigure(i, weight=weight, minsize=min_width)
             
-            # Usa anchor da coluna se definido, senão usa padrão
-            anchor = col.get("anchor", "left" if cell_type == "icon" else "w")
-            
             label = ctk.CTkLabel(
                 header_frame,
                 text=col.get("title", f"Col {i}"),
                 font=("", 12, "bold"),
-                anchor=anchor
             )
             label.grid(row=0, column=i, sticky="ew", padx=5, pady=8)
     

@@ -1,6 +1,8 @@
 import customtkinter as ctk
 from typing import Optional, Callable
 import sys
+import tkinter as tk
+from pathlib import Path
 
 # Importação condicional para evitar erros
 try:
@@ -10,6 +12,19 @@ except ImportError:
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).parent.parent.parent))
     from config.settings import ThemeManager
+
+
+def set_window_icon_unified(window, window_name="Window"):
+    """
+    Aplica ícone a qualquer tipo de janela (CTk ou CTkToplevel).
+    Usa a função centralizada do icon_helper.
+    """
+    try:
+        from utils.icon_helper import set_window_icon
+        return set_window_icon(window, window_name)
+    except Exception as e:
+        print(f"Erro ao aplicar ícone: {e}")
+        return False
 
 
 class BaseWindow(ctk.CTkToplevel):
@@ -54,10 +69,15 @@ class BaseWindow(ctk.CTkToplevel):
         # Construir UI (implementado nas subclasses)
         self._build_ui()
         
-        # Modal
+        # Modal e transient
         if modal:
             self.transient(parent)
+            # Aplica ícone também em janelas secundárias
+            set_window_icon_unified(self, title)
             self.grab_set()
+        else:
+            # Também aplica em janelas não-modais
+            set_window_icon_unified(self, title)
         
         # Centralizar e mostrar
         if center:
@@ -98,6 +118,8 @@ class BaseWindow(ctk.CTkToplevel):
 
     def _on_configure(self, event):
         pass
+    
+    # Removido _set_window_icon - janelas secundárias herdam ícone do pai via transient()
     
     def _on_close(self):
         if self._on_close_callback:
@@ -144,11 +166,18 @@ class BaseMainWindow(ctk.CTk):
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
         
+        # Define ícone da janela principal
+        self._set_window_icon()
+        
         # Construir UI
         self._build_ui()
         
         # Mostrar após construção
         self.after(50, self._show_window)
+    
+    def _set_window_icon(self):
+        from utils.icon_helper import set_window_icon
+        set_window_icon(self, "MainWindow")
     
     def _show_window(self):
         self.deiconify()

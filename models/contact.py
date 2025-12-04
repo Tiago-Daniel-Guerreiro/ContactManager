@@ -4,15 +4,12 @@ from typing import Optional
 from enum import Enum, auto
 import re
 
-
 class SendStatus(Enum):
-    """Estados de envio"""
     PENDING = auto()
     SENT = auto()
     FAILED = auto()
     DESELECTED = auto()
     SKIPPED = auto()
-
 
 @dataclass
 class Contact:
@@ -61,18 +58,20 @@ class Contact:
         digits = re.sub(r'\D', '', str(phone))
         return len(digits) >= 9
     
-    def verificar_enviar_boas_vindas(self) -> bool:
+    def verificar_enviar_boas_vindas(self, ignore_selection: bool = False) -> bool:
+        selection_check = True if ignore_selection else self.selecionado
         return (
             self.ativo and 
-            self.selecionado and 
+            selection_check and 
             self.is_valid and
             (not self.ultimo_envio or self.ultimo_envio.strip() == "")
         )
     
-    def verificar_enviar_mensagem_geral(self) -> bool:
+    def verificar_enviar_mensagem_geral(self, ignore_selection: bool = False) -> bool:
+        selection_check = True if ignore_selection else self.selecionado
         return (
             self.ativo and 
-            self.selecionado and 
+            selection_check and 
             self.is_valid
         )
     

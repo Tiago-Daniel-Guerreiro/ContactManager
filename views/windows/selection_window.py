@@ -31,7 +31,7 @@ class ContactSelectionWindow(BaseListWindow):
             mode=BaseListWindow.MODE_SELECTION
         )
         
-        # Define o callback DEPOIS do super() para não ser sobrescrito!
+        # Define o callback depois do super() para não ser sobrescrito!
         self._on_confirm_callback = self._temp_on_confirm
     
     def _build_footer(self):

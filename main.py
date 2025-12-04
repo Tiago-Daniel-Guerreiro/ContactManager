@@ -1,9 +1,10 @@
 import sys
 import os
 from pathlib import Path
+from utils import get_base_dir
 
 # Adiciona diretório raiz ao path para imports
-ROOT_DIR = Path(__file__).parent
+ROOT_DIR = get_base_dir() 
 sys.path.insert(0, str(ROOT_DIR))
 
 # Configuração de encoding para Windows
@@ -17,40 +18,62 @@ if sys.platform == 'win32':
     except Exception:
         pass  # Ignora erros de reconfiguração
 
-
 def setup_environment():
     # Cria diretórios necessários se não existirem
     dirs_to_create = [
         ROOT_DIR / "data",
+        ROOT_DIR / "config",
+        ROOT_DIR / "reports",
     ]
     
     for dir_path in dirs_to_create:
-        dir_path.mkdir(exist_ok=True)
-    
+        try:
+            dir_path.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+
     # Configura variáveis de ambiente para CustomTkinter
     os.environ["CTK_SILENCE_DEPRECATION_WARNINGS"] = "1"
 
-
-def check_dependencies():
-    required = ['customtkinter', 'tkinter']
-    missing = []
-    
-    for package in required:
+def set_app_user_model_id():
+    if sys.platform == 'win32':
         try:
-            __import__(package)
-        except ImportError:
-            missing.append(package)
-    
-    if missing:
-        print(f"Dependências em falta: {', '.join(missing)}")
-        print("   Instale com: pip install customtkinter")
-        sys.exit(1)
-
+            import ctypes
+            # Define um ID único para a aplicação
+            # Isso faz o Windows reconhecer a app como diferente do Python
+            myappid = 'TiagoGuerreiro.ContactManager.WhatsAppSMS.5.3.0'
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+            return True
+        except Exception as e:
+            print(f"Erro ao definir AppUserModelID: {e}")
+            return False
+    return False
 
 def main():
     # Verificações iniciais
-    check_dependencies()
     setup_environment()
+    
+    # Modo debug: mostra console com informações detalhadas
+    debug_mode = "--debug" in sys.argv
+    if debug_mode:
+        print("Modo debug")
+        print(f"Python: {sys.version}")
+        print(f"Executável: {sys.executable}")
+        print(f"Frozen: {getattr(sys, 'frozen', False)}")
+        if getattr(sys, 'frozen', False):
+            print(f"_MEIPASS: {getattr(sys, '_MEIPASS', 'N/A')}")
+        print(f"Diretório atual: {os.getcwd()}")
+        print(f"ROOT_DIR: {ROOT_DIR}")
+    
+    # Fix para ícone na barra de tarefas do Windows
+    if sys.platform == 'win32':
+        try:
+            result = set_app_user_model_id()
+            if debug_mode:
+                print(f"AppUserModelID definido: {result}")
+        except Exception as e:
+            if debug_mode:
+                print(f"Erro ao definir AppUserModelID: {e}")
     
     # Import após verificações
     from views.windows.main_window import MainWindow
@@ -71,7 +94,6 @@ def main():
         traceback.print_exc()
         sys.exit(1)
 
-
 def run_with_profiling():
     import cProfile
     import pstats
@@ -87,8 +109,26 @@ def run_with_profiling():
     stats.print_stats(20)
 
 if __name__ == "__main__":
-    # Verifica se deve executar com profiling
+    # Verifica argumentos de linha de comando
     if "--profile" in sys.argv:
         run_with_profiling()
-    else:
-        main()
+        exit(0)
+        
+    if "--debug" in sys.argv:
+        # Modo debug - força console mesmo se for .exe
+        if sys.platform == 'win32' and getattr(sys, 'frozen', False):
+            # Se for .exe, tenta abrir um console
+            try:
+                import ctypes
+                kernel32 = ctypes.windll.kernel32
+                # Aloca um novo console
+                if kernel32.AllocConsole():
+                    # Redireciona stdout e stderr para o console
+                    sys.stdout = open('CONOUT$', 'w')
+                    sys.stderr = open('CONOUT$', 'w')
+                    print("\nConsole de Debug")
+                    print("Feche esta janela para encerrar a aplicação\n")
+            except Exception as e:
+                print(f"Erro ao alocar console: {e}")
+
+    main()

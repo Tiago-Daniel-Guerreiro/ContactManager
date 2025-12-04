@@ -1,6 +1,7 @@
 {
-  "method": "sms",
+  "method": "whatsapp",
   "delay": 5,
-  "message": "Olá {nome}!",
-  "welcome": "Bem vindo {nome}.\nEnvie \"PARAR\" para não receber mais mensagens."
+  "message": "Olá {nome}!\n",
+  "welcome": "Bem vindo {nome}. \nEnvie \"PARAR\" para não receber mais mensagens.",
+  "sheets_url": ""
 }

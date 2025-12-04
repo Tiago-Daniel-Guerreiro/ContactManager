@@ -26,24 +26,25 @@ class DeviceInfo:
 
 def get_adb_download_url() -> Tuple[str, str]:
     system = platform.system()
-    
-    if system == "Windows":
-        return (
-            "https://dl.google.com/android/repository/platform-tools-latest-windows.zip",
-            "platform-tools-windows.zip"
-        )
-    elif system == "Darwin":  # macOS
-        return (
-            "https://dl.google.com/android/repository/platform-tools-latest-darwin.zip",
-            "platform-tools-darwin.zip"
-        )
-    elif system == "Linux":
-        return (
-            "https://dl.google.com/android/repository/platform-tools-latest-linux.zip",
-            "platform-tools-linux.zip"
-        )
-    else:
-        raise Exception(f"Sistema operacional não suportado: {system}")
+
+    match system:
+        case "Windows":
+            return (
+                "https://dl.google.com/android/repository/platform-tools-latest-windows.zip",
+                "platform-tools-windows.zip"
+            )
+        case "Darwin":  # macOS
+            return (
+                "https://dl.google.com/android/repository/platform-tools-latest-darwin.zip",
+                "platform-tools-darwin.zip"
+            )
+        case "Linux":
+            return (
+                "https://dl.google.com/android/repository/platform-tools-latest-linux.zip",
+                "platform-tools-linux.zip"
+            )
+        case _:
+            raise Exception(f"Sistema operacional não suportado: {system}")
 
 def download_adb(
     destination_folder: str,
@@ -304,8 +305,8 @@ class SMSSender:
         
         log_fn("Nenhum dispositivo Android encontrado")
         log_fn("   Verifique:")
-        log_fn("   • Cabo USB conectado")
-        log_fn("   • Depuração USB ativada")
+        log_fn("   - Cabo USB conectado")
+        log_fn("   - Depuração USB ativada")
         self.device_connected = False
         self.device_id = None
         self.device_info = None
@@ -534,7 +535,7 @@ class SMSSender:
     
     def get_last_messages(self, phone: str, limit: int = 10) -> list:
         target_norm = self._normalize_phone(phone)
-        self._log(f"🔍 Procurando mensagens para: {phone} (Norm: {target_norm})")
+        self._log(f"Procurando mensagens para: {phone} (Norm: {target_norm})")
         
         try:
             # Usa projection para output mais limpo
@@ -620,17 +621,15 @@ class SMSSender:
         
     def _send_sms_direct(self, phone: str, message: str) -> Tuple[bool, str]:
         try:
-            # Escapa caracteres especiais para shell, mas mantém \n como quebra de linha
+            # Mantém \n como quebra de linha
             message_escaped = message.replace('"', '\\"').replace("'", "\\'").replace('$', '\\$').replace('`', '\\`')
             phone_clean = self._normalize_phone_for_sms(phone)
             
-            # CONTA SMS ANTES
             count_before = self._count_sent_sms()
             self._log(f"   SMS enviados antes: {count_before}")
             
             self._log(f"   A abrir aplicação de mensagens...")
             
-            # Usa broadcast com ACTION_SENDTO que é o método padrão do Android
             result = self._run_adb(
                 "shell",
                 f'am start -a android.intent.action.SENDTO -d sms:{phone_clean} --es sms_body "{message_escaped}" --ez exit_on_sent true'

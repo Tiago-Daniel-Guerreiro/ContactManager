@@ -1,0 +1,10 @@
+__pycache__/
+build/
+dist/
+*.json
+lixo/
+*.html
+data/
+reports/
+venv/
+.bat
