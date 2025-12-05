@@ -372,3 +372,24 @@ class ContactEditorWindow(BaseListWindow):
                 self._save()
                 return
         super()._on_close()
+    
+    def refresh_data(self, new_data: Optional[List[Contact]] = None):
+        if new_data is not None:
+            self.data = new_data
+        
+        # Filtra apenas contactos não eliminados para exibição
+        display_data = [c for c in self.data if not getattr(c, '_deleted', False)]
+        
+        # Limpa rows e repopula com dados filtrados
+        for row in self._rows:
+            row.destroy()
+        self._rows.clear()
+        self._edit_widgets.clear()
+        self._checkboxes.clear()
+        
+        # Cria novas rows apenas com contactos ativos
+        for row_idx, item in enumerate(display_data):
+            self._create_row(row_idx, item)
+        
+        # Atualiza estatísticas
+        self._update_stats()

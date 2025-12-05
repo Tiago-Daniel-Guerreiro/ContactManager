@@ -7,4 +7,4 @@ lixo/
 data/
 reports/
 venv/
-.bat
+*.bat

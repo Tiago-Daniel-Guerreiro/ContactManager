@@ -5,6 +5,7 @@ from pathlib import Path
 
 from models.contact import Contact, SendStatus
 from controllers.services.report_service import SendReport, ReportService
+from controllers.services.whatsapp_sender import WhatsAppSender
 
 class ContactController:
     def __init__(self):
@@ -181,7 +182,7 @@ class ContactController:
                 
                 # Aguarda login em thread separada para não bloquear
                 def wait_login_thread():
-                    success, msg = whatsapp_sender.wait_for_login(timeout=60, log_callback=self._log)
+                    success, msg = whatsapp_sender.wait_for_login(timeout=120, log_callback=self._log)
                     if success:
                         self._log("WhatsApp: Login confirmado")
                         if on_complete:
@@ -311,6 +312,8 @@ class ContactController:
         try:
             total = len(contacts)
             self._log(f"Enviando para {total} contactos...")
+            
+            # Já há 3s de espera após o login, não precisa de mais delay aqui
             
             sent = 0
             failed = 0
@@ -455,6 +458,14 @@ class ContactController:
             self._log(f"Erro no envio: {str(e)}")
         finally:
             self._is_sending = False
+            
+            # Cleanup do WhatsApp se estiver a usar
+            if isinstance(self._sender, WhatsAppSender):
+                try:
+                    self._log("A encerrar WhatsApp...")
+                    self._sender.cleanup(log_callback=self._log)
+                except Exception as e:
+                    self._log(f"Erro ao encerrar WhatsApp: {e}")
     
     def _update_progress_wrapper(self, current: int, total: int):
         progress = current / total if total > 0 else 0

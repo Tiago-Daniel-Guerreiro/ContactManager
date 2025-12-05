@@ -285,17 +285,27 @@ class DataHandler:
             file_path.parent.mkdir(parents=True, exist_ok=True)
             
             # Salva apenas contactos não deletados com os campos necessários
-            data = [
-                {
-                    "nome": c.nome,
-                    "telemovel": c.contacto_original,
-                    "telemovel_normalizado": c.contacto_normalizado,
-                    "ultimo_envio": c.ultimo_envio,
-                    "ativo": c.ativo,
-                    "selecionado": c.selecionado
+            # Compatível com Contact e ContactData
+            data = []
+            for c in self.contacts:
+                # Tenta usar Contact.to_dict() se disponível
+                if hasattr(c, 'to_dict') and callable(c.to_dict):
+                    try:
+                        data.append(c.to_dict())
+                        continue
+                    except:
+                        pass
+                
+                # Fallback para construir manualmente (compatível com ambos)
+                contact_dict = {
+                    "nome": getattr(c, 'nome', ''),
+                    "telemovel": getattr(c, 'telemovel', getattr(c, 'contacto_original', '')),
+                    "telemovel_normalizado": getattr(c, 'telemovel_normalizado', getattr(c, 'contacto_normalizado', '')),
+                    "ultimo_envio": getattr(c, 'ultimo_envio', ''),
+                    "ativo": getattr(c, 'ativo', True),
+                    "selecionado": getattr(c, 'selecionado', True)
                 }
-                for c in self.contacts
-            ]
+                data.append(contact_dict)
             
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)

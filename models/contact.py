@@ -157,9 +157,11 @@ class Contact:
     
     @classmethod
     def from_dict(cls, data: dict) -> 'Contact':
+        # Suporta ambos 'telemovel' e 'contacto_original' para compatibilidade
+        telemovel = data.get("telemovel", data.get("contacto_original", ""))
         return cls(
             nome=data.get("nome", ""),
-            telemovel=data.get("telemovel", data.get("contacto_original", "")),
+            telemovel=telemovel,
             telemovel_normalizado=data.get("telemovel_normalizado", data.get("contacto_normalizado", "")),
             ultimo_envio=data.get("ultimo_envio", ""),
             ativo=data.get("ativo", True),

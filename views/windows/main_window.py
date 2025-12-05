@@ -754,4 +754,5 @@ class MainWindow(BaseMainWindow):
     def _on_closing(self):
         self._save_config()
         self._auto_save_contacts()
+        
         self.quit()

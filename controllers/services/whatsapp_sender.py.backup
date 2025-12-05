@@ -15,7 +15,58 @@ from dataclasses import dataclass
 from datetime import datetime
 
 @dataclass
-class WhatsAppResult:
+class SendResult:
+    success: bool
+    message: str
+    phone_sent_to: str
+    timestamp: str
+    import sys
+    
+    def custom_log(msg):
+        """Callback personalizado para logging no main."""
+        print(f"[MAIN] {msg}", flush=True)
+    
+    custom_log("=== Teste do WhatsAppSender ===")
+    
+    sender = WhatsAppSender(log_callback=custom_log, verbose=True)
+    
+    custom_log("\n1. Inicializando...")
+    success, msg = sender.initialize(log_callback=custom_log)
+    custom_log(f"Resultado: {success} - {msg}\n")
+    
+    if success:
+        custom_log("2. Aguardando login...")
+        success, msg = sender.wait_for_login(log_callback=custom_log)
+        custom_log(f"Resultado: {success} - {msg}\n")
+        
+        if success:
+            try:
+                number = input("\n3. Digite o número de telefone (com código do país): ")
+                msg_text = input("4. Digite a mensagem: ")
+                
+                custom_log("\n5. Enviando mensagem...")
+                result = sender.send_message(number, msg_text, log_callback=custom_log)
+                custom_log(f"\nResultado do envio:")
+                custom_log(f"  Success: {result.success}")
+                custom_log(f"  Message: {result.message}")
+                custom_log(f"  Phone: {result.phone_sent_to}")
+                custom_log(f"  Timestamp: {result.timestamp}")
+            except KeyboardInterrupt:
+                custom_log("\n\nInterrompido pelo utilizador")
+        
+        input("\n\nPressione ENTER para fechar...")
+        sender.close(log_callback=custom_log)
+    
+    custom_log("\n=== Teste concluído ===")
+bdriver.edge.service import Service
+from selenium.webdriver.edge.options import Options
+from selenium.webdriver.common.keys import Keys
+from typing import Optional, Callable, Tuple
+from dataclasses import dataclass
+from datetime import datetime
+
+@dataclass
+class SendResult:
     success: bool
     message: str
     phone_sent_to: str
@@ -26,33 +77,34 @@ class WhatsAppSender:
     LOGIN_TIMEOUT = 120
     LOAD_TIMEOUT = 20 
     
-    def __init__(self, log_callback: Optional[Callable] = None):
+    def __init__(self, log_callback: Optional[Callable] = None, verbose: bool = False):
         self.driver: Optional[webdriver.Edge] = None
         self._driver_process = None
         # Cria uma pasta específica para isolar totalmente do Edge pessoal
         self.session_dir = os.path.abspath(os.path.join(os.path.expanduser("~"), ".whatsapp_edge_session"))
-        self._log_callback = log_callback
+        self._default_log = log_callback
+        self.verbose = verbose
         
-        if self._log_callback:
-            self._log_callback("WhatsAppSender criado")
+        self._log("WhatsAppSender criado")
     
-    def _log(self, message: str):
-        if self._log_callback:
-            self._log_callback(message)
-    
-    def set_log_callback(self, callback: Callable):
-        self._log_callback = callback
+    def _log(self, msg: str, log_callback: Optional[Callable] = None, level: str = "info"):
+        """Helper para logging consistente."""
+        log_func = log_callback or self._default_log
+        if log_func:
+            if self.verbose or level != "debug":
+                timestamp = datetime.now().strftime("%H:%M:%S")
+                log_func(f"[{timestamp}] {msg}")
     
     @property
-    def islogged_in(self) -> bool:
+    def is_logged_in(self) -> bool:
         if not self.driver: return False
         try:
             return len(self.driver.find_elements(By.CSS_SELECTOR, '#pane-side')) > 0
         except:
             return False
     
-    def _kill_specific_session_processes(self, log: Optional[Callable] = None) -> bool:
-        self._log("Procurando processos da sessão específica...")
+    def _kill_specific_session_processes(self, log_callback: Optional[Callable] = None) -> bool:
+        self._log("Procurando processos da sessão específica...", log_callback, "debug")
         killed = False
         target_names = ['msedge.exe', 'msedgewebview2.exe']
         # O driver pode ser morto sem problemas
@@ -70,27 +122,27 @@ class WhatsAppSender:
                     if any(d in p_name for d in driver_names):
                         proc.kill()
                         killed = True
-                        self._log(f"Driver fechado: PID {p_info['pid']}")
+                        self._log(f"Driver morto: PID {p_info['pid']}", log_callback, "debug")
                     elif any(t in p_name for t in target_names):
                         # Só mata se o processo tiver a nossa pasta de sessão nos argumentos
                         if self.session_dir.lower() in p_cmd or '.whatsapp_edge_session' in p_cmd:
                             proc.kill()
                             killed = True
-                            self._log(f"Edge da sessão fechado: PID {p_info['pid']}")
+                            self._log(f"Edge da sessão morto: PID {p_info['pid']}", log_callback, "debug")
                 except: continue
             
             if killed: time.sleep(0.5)
         
         if killed: 
             time.sleep(1)
-            self._log("Processos da sessão limpos")
+            self._log("Processos da sessão limpos", log_callback)
         else:
-            self._log("Nenhum processo conflituoso")
+            self._log("Nenhum processo conflituoso", log_callback, "debug")
         return killed
     
-    def _cleanup_session_locks(self, log: Optional[Callable] = None) -> bool:
+    def _cleanup_session_locks(self, log_callback: Optional[Callable] = None) -> bool:
         if not os.path.exists(self.session_dir): return True
-        self._log("Limpando locks de sessão...")
+        self._log("Limpando locks de sessão...", log_callback, "debug")
         lock_files = ["SingletonLock", "SingletonSocket", "SingletonCookie", "lockfile"]
         cleaned = 0
         for fname in lock_files:
@@ -101,33 +153,33 @@ class WhatsAppSender:
                     cleaned += 1
                 except: pass 
         if cleaned > 0:
-            self._log(f"{cleaned} lock(s) removido(s)")
+            self._log(f"{cleaned} lock(s) removido(s)", log_callback, "debug")
         return True
     
-    def _prepare_session_directory(self, log: Optional[Callable] = None, force_clean: bool = False) -> bool:
+    def _prepare_session_directory(self, log_callback: Optional[Callable] = None, force_clean: bool = False) -> bool:
         if force_clean and os.path.exists(self.session_dir):
-            self._log("Limpando sessão (force_clean=True)...")
+            self._log("Limpando sessão (force_clean=True)...", log_callback)
             try: shutil.rmtree(self.session_dir); time.sleep(0.5)
             except: pass
         os.makedirs(self.session_dir, exist_ok=True)
-        self._log(f"Diretório de sessão pronto: {self.session_dir}")
-        return self._cleanup_session_locks(log)
+        self._log(f"Diretório de sessão pronto: {self.session_dir}", log_callback, "debug")
+        return self._cleanup_session_locks(log_callback)
     
-    def _get_edge_driver_service(self, log: Optional[Callable] = None):
+    def _get_edge_driver_service(self, log_callback=None):
         local = os.path.join(os.getcwd(), "msedgedriver.exe")
         if os.path.exists(local): 
-            self._log("Usando msedgedriver local")
+            self._log("Usando msedgedriver local", log_callback, "debug")
             return Service(executable_path=local)
         try:
-            self._log("Obtendo driver via webdriver-manager...")
+            self._log("Obtendo driver via webdriver-manager...", log_callback, "debug")
             from webdriver_manager.microsoft import EdgeChromiumDriverManager
             return Service(executable_path=EdgeChromiumDriverManager().install())
         except:
-            self._log("Usando Service padrão")
+            self._log("Usando Service padrão", log_callback, "debug")
             return Service()
 
-    def _create_edge_options(self, log: Optional[Callable] = None) -> Options:
-        self._log("Configurando opções do Edge...")
+    def _create_edge_options(self, log_callback: Optional[Callable] = None) -> Options:
+        self._log("Configurando opções do Edge...", log_callback, "debug")
         options = Options()
         options.add_argument(f"--user-data-dir={self.session_dir}")
         options.add_argument("--profile-directory=Default")
@@ -141,57 +193,57 @@ class WhatsAppSender:
         ]
         for arg in args: options.add_argument(arg)
         options.add_experimental_option('excludeSwitches', ['enable-automation', 'enable-logging'])
-        self._log("Opções configuradas (porta 9225)")
+        self._log("Opções configuradas (porta 9225)", log_callback, "debug")
         return options
 
-    def initialize(self, log: Optional[Callable] = None, force_clean_session: bool = False) -> Tuple[bool, str]:
-        self._log("Inicializando em modo isolado...")
+    def initialize(self, log_callback: Optional[Callable] = None, force_clean_session: bool = False) -> Tuple[bool, str]:
+        self._log("Inicializando em modo isolado...", log_callback)
         
         try:
-            self._kill_specific_session_processes(log)
-            self._prepare_session_directory(log, force_clean_session)
+            self._kill_specific_session_processes(log_callback)
+            self._prepare_session_directory(log_callback, force_clean_session)
             
-            options = self._create_edge_options(log)
-            service = self._get_edge_driver_service(log)
+            options = self._create_edge_options(log_callback)
+            service = self._get_edge_driver_service(log_callback)
             
             # Flags para esconder a janela do console do driver (não do browser)
             if service:
                 service.creation_flags = 0x08000000 | 0x00000008 | 0x00000200
 
-            self._log("Criando driver...")
+            self._log("Criando driver...", log_callback)
             try:
                 self.driver = webdriver.Edge(service=service, options=options)
-                self._log("Driver criado")
+                self._log("✓ Driver criado", log_callback)
             except Exception as e:
                 if "user data" in str(e):
-                    self._log("Conflito, tentando novamente...")
-                    self._kill_specific_session_processes(log)
+                    self._log("Conflito, tentando novamente...", log_callback)
+                    self._kill_specific_session_processes(log_callback)
                     time.sleep(2)
                     self.driver = webdriver.Edge(service=service, options=options)
-                    self._log("Driver criado (2ª tentativa)")
+                    self._log("✓ Driver criado (2ª tentativa)", log_callback)
                 else:
                     raise e
 
-            self._log("Abrindo WhatsApp...")
+            self._log("Abrindo WhatsApp...", log_callback)
             self.driver.get(self.WHATSAPP_URL)
             
             try:
                 self.driver.minimize_window()
-                self._log("Janela minimizada")
+                self._log("Janela minimizada", log_callback, "debug")
             except:
                 pass
             
-            self._log("Inicialização concluída")
+            self._log("✓ Inicialização concluída", log_callback)
             return True, "Iniciado"
             
         except Exception as e:
-            self._log(f"Erro fatal: {e}")
+            self._log(f"✗ Erro fatal: {e}", log_callback)
             return False, str(e)
     
-    def wait_forlogin(self, timeout: int = 120, log: Optional[Callable] = None) -> Tuple[bool, str]:
+    def wait_for_login(self, timeout: int = 120, log_callback: Optional[Callable] = None) -> Tuple[bool, str]:
         if not self.driver: return False, "Driver Off"
         
-        if self.islogged_in:
+        if self.is_logged_in:
             return True, "Já logado"
             
         self._log("Necessário Login (QR Code). Restaurando janela...")
@@ -212,131 +264,77 @@ class WhatsAppSender:
         except:
             return False, "Timeout"
 
-    def _wait_for_chat_load_or_error(self, timeout: int, log: Optional[Callable] = None) -> str:
-        self._log("Aguardando carregamento do chat...")
-        
-        assert self.driver is not None, "Driver não está inicializado"
-        
+    def _wait_for_chat_load_or_error(self, timeout: int) -> str:
         end_time = time.time() + timeout
         input_css = 'div[contenteditable="true"][data-tab="10"]'
         input_css_alt = 'footer div[contenteditable="true"]' 
         
         while time.time() < end_time:
             try:
-                if len(self.driver.find_elements(By.CSS_SELECTOR, input_css)) > 0: 
-                    self._log("Input detectado")
-                    return 'input'
-                if len(self.driver.find_elements(By.CSS_SELECTOR, input_css_alt)) > 0: 
-                    self._log("Input alternativo detectado")
-                    return 'input'
+                if len(self.driver.find_elements(By.CSS_SELECTOR, input_css)) > 0: return 'input'
+                if len(self.driver.find_elements(By.CSS_SELECTOR, input_css_alt)) > 0: return 'input'
 
                 body_text = self.driver.find_element(By.TAG_NAME, 'body').text
                 if "número de telemóvel" in body_text.lower() and "inválido" in body_text.lower():
-                    self._log("Número inválido detectado")
                     return 'invalid'
                 if "phone number shared via url is invalid" in body_text.lower():
-                    self._log("Número inválido detectado (EN)")
                     return 'invalid'
-            except: 
-                pass
+            except: pass
             time.sleep(0.2)
-        
-        self._log("Timeout ao aguardar chat")
         return 'timeout'
-    
-    def send_message(self, phone: str, message: str, log: Optional[Callable] = None) -> WhatsAppResult:
+
+    def send_message(self, phone: str, message: str, log_callback: Optional[Callable] = None) -> SendResult:
         phone = ''.join(filter(str.isdigit, phone))
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        self._log(f"Enviando para {phone}...")
-        
-        if not self.driver: 
-            self._log("Driver não inicializado")
-            return WhatsAppResult(False, "Driver off", phone, timestamp)
+        if not self.driver: return SendResult(False, "Driver off", phone, timestamp)
 
         try:
-            self._log(f"Abrindo chat: {phone}")
             self.driver.get(f"https://web.whatsapp.com/send?phone={phone}")
             
-            state = self._wait_for_chat_load_or_error(self.LOAD_TIMEOUT, log)
-            if state == 'invalid': 
-                self._log(f"Número inválido: {phone}")
-                return WhatsAppResult(False, "Número Inválido", phone, timestamp)
-            elif state == 'timeout': 
-                self._log(f"Timeout ao carregar chat: {phone}")
-                return WhatsAppResult(False, "Timeout Chat", phone, timestamp)
+            state = self._wait_for_chat_load_or_error(self.LOAD_TIMEOUT)
+            if state == 'invalid': return SendResult(False, "Número Inválido", phone, timestamp)
+            elif state == 'timeout': return SendResult(False, "Timeout Chat", phone, timestamp)
             
-            self._log("Procurando input box...")
             try:
                 input_box = self.driver.find_element(By.CSS_SELECTOR, 'div[contenteditable="true"][data-tab="10"]')
             except:
                 input_box = self.driver.find_element(By.CSS_SELECTOR, 'footer div[contenteditable="true"]')
             
-            self._log("Limpando input...")
+            # Envio limpo e direto
             input_box.click()
             input_box.send_keys(Keys.CONTROL, 'a')
             input_box.send_keys(Keys.BACK_SPACE)
             
-            self._log("Digitando mensagem...")
             lines = message.split('\n')
             for i, line in enumerate(lines):
                 input_box.send_keys(line)
                 if i < len(lines) - 1:
                     input_box.send_keys(Keys.SHIFT, Keys.ENTER)
             
-            self._log("Enviando...")
             input_box.send_keys(Keys.ENTER)
             
-            self._log(f"Enviado para {phone}")
-            return WhatsAppResult(True, "Enviado", phone, timestamp)
+            self._log(f"Comando enviado para {phone}", level="info")
+            return SendResult(True, "Enviado", phone, timestamp)
 
         except Exception as e:
-            self._log(f"Erro ao enviar para {phone}: {e}")
-            return WhatsAppResult(False, str(e), phone, timestamp)
+            self._log(f"Erro envio: {e}", level="info")
+            return SendResult(False, str(e), phone, timestamp)
 
-    def close(self, log: Optional[Callable] = None):
+    def close(self):
         if self.driver:
-            try: 
-                self._log("Fechando driver...")
-                self.driver.quit()
-                self._log("Driver fechado")
-            except: 
-                pass
+            try: self.driver.quit()
+            except: pass
         self.driver = None
 
-
-# Para debug - executar diretamente
+# Teste rápido
 if __name__ == "__main__":    
-    print("Teste do WhatsAppSender")
+    sender = WhatsAppSender(log_callback=print, verbose=True)
     
-    # Cria sender com verbose=True para ver mensagens de debug
-    sender = WhatsAppSender()
-    
-    print("\n1. Inicializando...")
-    success, msg = sender.initialize()
-    print(f"Resultado: {success} - {msg}\n")
-    
-    if success:
-        print("2. Aguardando login...")
-        success, msg = sender.wait_forlogin()
-        print(f"Resultado: {success} - {msg}\n")
-        
-        if success:
-            try:
-                number = input("\n3. Digite o número de telefone (com código do país): ")
-                msg_text = input("4. Digite a mensagem: ")
-                
-                print("\n5. Enviando mensagem...")
-                result = sender.send_message(number, msg_text)
-                print(f"\nResultado do envio:")
-                print(f"  Success: {result.success}")
-                print(f"  Message: {result.message}")
-                print(f"  Phone: {result.phone_sent_to}")
-                print(f"  Timestamp: {result.timestamp}")
-            except KeyboardInterrupt:
-                print("\n\nInterrompido pelo utilizador")
-        
-        input("\n\nPressione ENTER para fechar...")
+    ok, msg = sender.initialize()
+    if ok:
+        sender.wait_for_login()
+        number = input("In o número de telefone (no formato xxxxxxxxx): ")
+        result = sender.send_message(number, "Teste")
+        print(result)
         sender.close()
-    
-    print("\n=== Teste concluído ===")
