@@ -10,7 +10,7 @@ from dataclasses import dataclass
 class SendReport:
     contact_name: str
     contact_phone: str
-    status: str  # 'sucesso', 'erro'
+    status: str  # 'sucesso', 'erro', 'inválido'
     message: str
     timestamp: str
     message_type: str = 'geral'  # 'boas-vindas' ou 'geral'
@@ -22,6 +22,8 @@ class ReportService:
         try:
             # Estatísticas gerais
             successful = sum(1 for r in reports if r.status == "sucesso")
+            invalid = sum(1 for r in reports if r.status == "inválido")
+            errors = sum(1 for r in reports if r.status == "erro")
             total = len(reports)
             
             # Estatísticas por tipo de mensagem
@@ -52,6 +54,7 @@ class ReportService:
         .summary p {{ margin: 8px 0; }}
         .success {{ color: green; }}
         .error {{ color: red; }}
+        .invalid {{ color: orange; font-weight: bold; }}
         .note {{
             background: #fffbf0;
             padding: 15px;
@@ -93,7 +96,8 @@ class ReportService:
         <h2>Resumo</h2>
         <p><strong>Total de envios:</strong> {total}</p>
         <p class="success"><strong>Sucesso:</strong> {successful}/{total} ({(successful/total*100) if total > 0 else 0:.1f}%)</p>
-        <p class="error"><strong>Erros:</strong> {total - successful}/{total}</p>
+        <p class="invalid"><strong>Números Inválidos:</strong> {invalid}/{total}</p>
+        <p class="error"><strong>Erros:</strong> {errors}/{total}</p>
         <p><strong>Boas-vindas:</strong> {len(welcome_reports)} ({welcome_success} com sucesso)</p>
         <p><strong>Mensagens gerais:</strong> {len(general_reports)} ({general_success} com sucesso)</p>
     </div>
@@ -114,8 +118,15 @@ class ReportService:
 """
             
             for report in reports:
-                status_text = "OK" if report.status == "sucesso" else "ERRO"
-                status_class = "success" if report.status == "sucesso" else "error"
+                if report.status == "sucesso":
+                    status_text = "OK"
+                    status_class = "success"
+                elif report.status == "inválido":
+                    status_text = "INVÁLIDO"
+                    status_class = "invalid"
+                else:
+                    status_text = "ERRO"
+                    status_class = "error"
                 
                 type_class = "type-welcome" if report.message_type == 'boas-vindas' else "type-general"
                 type_text = "Boas-vindas" if report.message_type == 'boas-vindas' else "Geral"

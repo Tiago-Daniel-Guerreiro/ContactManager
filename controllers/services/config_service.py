@@ -7,7 +7,7 @@ class ConfigService:
         "method": "whatsapp",
         "delay": 5,
         "message": "Olá {nome}!\n",
-        "welcome": "Bem vindo {nome}. \nEnvie \"PARAR\" para não receber mais mensagens.",
+        "welcome": "Bem vindo(a) {nome}. \nEnvie \"PARAR\" para não receber mais mensagens.",
         "sheets_url": ""
     }
     

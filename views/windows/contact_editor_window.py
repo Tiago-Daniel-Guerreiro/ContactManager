@@ -161,7 +161,7 @@ class ContactEditorWindow(BaseListWindow):
 
         # Campo Telemóvel
         ctk.CTkLabel(frame, text="Telemóvel:", font=("", 12, "bold")).pack(anchor="w", pady=(0, 2))
-        telemovel_entry = ctk.CTkEntry(frame, placeholder_text="Ex: 926 335 120", height=35, font=("", 12))
+        telemovel_entry = ctk.CTkEntry(frame, placeholder_text="Ex: 920 300 100", height=35, font=("", 12))
         telemovel_entry.pack(fill="x", pady=(0, 10)) # Reduzi de 20 para 10
 
         # Label de aviso

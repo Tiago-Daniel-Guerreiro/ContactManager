@@ -163,7 +163,7 @@ class ContactController:
                 
                 whatsapp_sender = self._sender
                 
-                if hasattr(whatsapp_sender, "islogged_in") and whatsapp_sender.islogged_in:
+                if hasattr(whatsapp_sender, "is_logged_in") and whatsapp_sender.is_logged_in:
                     self._log("WhatsApp já está inicializado")
                     if on_complete:
                         on_complete(True, "WhatsApp já estava logado")
@@ -242,7 +242,7 @@ class ContactController:
         if method == "whatsapp":
             if not self._sender:
                 return False, "WhatsApp não inicializado. Clique em 'Inicializar' primeiro."
-            if WhatsAppSender and not (isinstance(self._sender, WhatsAppSender) and getattr(self._sender, 'islogged_in', False)):
+            if WhatsAppSender and not (isinstance(self._sender, WhatsAppSender) and getattr(self._sender, 'is_logged_in', False)):
                 return False, "WhatsApp não está logado. Clique em 'Inicializar' primeiro."
         elif method == "sms":
             if not self._sender:
@@ -337,7 +337,8 @@ class ContactController:
                 # Verifica resposta PARAR (se WhatsApp)
                 if check_stop_response and self._check_stop_response(contact):
                     contact.registar_envio(SendStatus.DESELECTED)
-                    self._log(f"{contact.nome}: Pediu para parar")
+                    contact.ativo = False  # Marca como inativo
+                    self._log(f"{contact.nome}: Pediu para parar (marcado como inativo)")
                     continue
                 
                 # Prepara mensagens usando message_service
@@ -357,7 +358,7 @@ class ContactController:
                 if welcome_msg:
                     self._log(f"[{i+1}/{total}] {contact.nome}: Enviando boas-vindas...")
                     
-                    success = self._send_message(contact, welcome_msg)
+                    success, status_code, result_msg = self._send_message(contact, welcome_msg)
                     
                     if success:
                         sent += 1
@@ -376,13 +377,16 @@ class ContactController:
                         ))
                     else:
                         failed += 1
-                        self._log(f"[{i+1}/{total}] {contact.nome}: ERRO (boas-vindas)")
+                        self._log(f"[{i+1}/{total}] {contact.nome}: {status_code} (boas-vindas)")
+                        
+                        # Define status no relatório baseado no status_code
+                        report_status = "inválido" if status_code == "INVALIDO" else "erro"
                         
                         reports.append(SendReport(
                             contact_name=contact.nome,
                             contact_phone=contact.telemovel_normalizado,
-                            status="erro",
-                            message="Falha ao enviar boas-vindas",
+                            status=report_status,
+                            message=result_msg or "Falha ao enviar boas-vindas",
                             timestamp=datetime.now().strftime("%H:%M:%S"),
                             message_type="boas-vindas"
                         ))
@@ -394,7 +398,7 @@ class ContactController:
                 if general_msg:
                     self._log(f"[{i+1}/{total}] {contact.nome}: Enviando mensagem geral...")
                     
-                    success = self._send_message(contact, general_msg)
+                    success, status_code, result_msg = self._send_message(contact, general_msg)
                     
                     if success:
                         sent += 1
@@ -413,13 +417,16 @@ class ContactController:
                     else:
                         failed += 1
                         contact.registar_envio(SendStatus.FAILED)
-                        self._log(f"[{i+1}/{total}] {contact.nome}: ERRO (geral)")
+                        self._log(f"[{i+1}/{total}] {contact.nome}: {status_code} (geral)")
+                        
+                        # Define status no relatório baseado no status_code
+                        report_status = "inválido" if status_code == "INVALIDO" else "erro"
                         
                         reports.append(SendReport(
                             contact_name=contact.nome,
                             contact_phone=contact.telemovel_normalizado,
-                            status="erro",
-                            message="Falha ao enviar",
+                            status=report_status,
+                            message=result_msg or "Falha ao enviar",
                             timestamp=datetime.now().strftime("%H:%M:%S"),
                             message_type="geral"
                         ))
@@ -434,7 +441,7 @@ class ContactController:
                     from utils.get_patch import get_base_dir
                     
                     # Determina método baseado no tipo de sender
-                    method = "whatsapp" if hasattr(self._sender, 'islogged_in') else "sms"
+                    method = "whatsapp" if hasattr(self._sender, 'is_logged_in') else "sms"
                     
                     reports_dir = get_base_dir() / "reports"
                     reports_dir.mkdir(exist_ok=True)
@@ -573,10 +580,11 @@ class ContactController:
         self._notify_complete(sent, failed, total)
         self._notify_contacts_changed()
     
-    def _send_message(self, contact: Contact, message: str) -> bool:
+    def _send_message(self, contact: Contact, message: str):
+        """Retorna tupla (success: bool, status_code: str, message: str)"""
         try:
             if self._sender is None:
-                return False
+                return False, "ERRO", "Sender não configurado"
             # Envio dinâmico, sem depender de tipos estáticos
             # Ambas as classes (WhatsAppSender e SMSSender) usam send_message
             if hasattr(self._sender, 'send_message') and callable(getattr(self._sender, 'send_message', None)):
@@ -585,11 +593,36 @@ class ContactController:
                     message,
                     self._log
                 )
-                return getattr(result, 'success', False)
-            return False
+                
+                # Obtém status_code se disponível (WhatsAppSender novo)
+                status_code = getattr(result, 'status_code', None)
+                result_message = getattr(result, 'message', '')
+                success = getattr(result, 'success', False)
+                
+                # Se não tem status_code, deduz do resultado
+                if not status_code:
+                    if success:
+                        status_code = "ENVIADO"
+                    elif 'inválido' in result_message.lower() or 'invalid' in result_message.lower():
+                        status_code = "INVALIDO"
+                    else:
+                        status_code = "ERRO"
+                
+                # Se o número for inválido, marca o contacto como inválido
+                if status_code == "INVALIDO":
+                    self._log(f"Marcando {contact.nome} como número inválido")
+                    contact.is_valid = False
+                    # Adiciona ao cache do WhatsAppSender se existir o atributo
+                    from controllers.services.whatsapp_sender import WhatsAppSender
+                    if isinstance(self._sender, WhatsAppSender):
+                        phone_digits = ''.join(filter(str.isdigit, contact.telemovel_normalizado))
+                        self._sender._invalid_numbers.add(phone_digits)
+                
+                return success, status_code, result_message
+            return False, "ERRO", "Método send_message não disponível"
         except Exception as e:
             self._log(f"Erro ao enviar para {contact.nome}: {e}")
-            return False
+            return False, "ERRO", str(e)
     
     def _check_stop_response(self, contact: Contact) -> bool:
         try:

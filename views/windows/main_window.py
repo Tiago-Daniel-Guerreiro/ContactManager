@@ -721,28 +721,7 @@ class MainWindow(BaseMainWindow):
                     self._log(f"Erro ao carregar contactos: {msg}")
             else:
                 # Oferece ao utilizador selecionar um ficheiro
-                from tkinter import messagebox, filedialog
-                
-                if messagebox.askyesno(
-                    "Ficheiro de Contactos",
-                    "Ficheiro de contactos não encontrado.\n\n"
-                    "Deseja procurar por um ficheiro JSON existente?"
-                ):
-                    filepath = filedialog.askopenfilename(
-                        title="Selecionar ficheiro de contactos",
-                        filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
-                    )
-                    
-                    if filepath:
-                        success, msg, warnings = self.service.load_json(filepath, merge=False)
-                        if success:
-                            self.controller._contacts = self.service.contacts
-                            self._update_contacts_label()
-                            self._log(f"Contactos carregados: {len(self.service.contacts)}")
-                        else:
-                            self._log(f"Erro ao carregar contactos: {msg}")
-                else:
-                    self._log("Nenhum contacto carregado")
+                self._log("Nenhum contacto carregado")
         except Exception as e:
             self._log(f"Erro ao carregar contactos: {e}")
     

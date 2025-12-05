@@ -1,19 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""
-PyInstaller spec for ContactManager
-"""
+
 import sys
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
-# Collect submodules automatically
 hidden_imports = collect_submodules('numpy')
 hidden_imports.extend(collect_submodules('pandas'))
 
-# Collect data files
 datas = collect_data_files('numpy')
 datas.extend(collect_data_files('pandas'))
 
-# Add app data files
 datas.extend([
     ('icon_light.png', '.'),
     ('icon_light.ico', '.'),
@@ -26,7 +21,6 @@ datas.extend([
     ('views', 'views'),
 ])
 
-# Additional hidden imports
 hidden_imports.extend([
     'customtkinter',
     'openpyxl',

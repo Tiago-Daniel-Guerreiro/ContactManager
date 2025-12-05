@@ -37,7 +37,7 @@ def set_window_icon_unified(window, window_name="Window"):
             test_path = meipass / icon_name
             if test_path.exists():
                 icon_path = test_path
-                print(f"[{window_name}] Ícone encontrado em _MEIPASS: {icon_path}")
+                print(f"Ícone encontrado em _MEIPASS: {icon_path}")
         
         # 2. Tenta diretório do script/executável
         if icon_path is None:
@@ -49,7 +49,7 @@ def set_window_icon_unified(window, window_name="Window"):
             test_path = base_dir / icon_name
             if test_path.exists():
                 icon_path = test_path
-                print(f"[{window_name}] Ícone encontrado em base_dir: {icon_path}")
+                print(f"Ícone encontrado em base_dir: {icon_path}")
         
         if icon_path is None or not icon_path.exists():
             print(f"Ícone não encontrado: {icon_name}")

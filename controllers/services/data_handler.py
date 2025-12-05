@@ -168,7 +168,7 @@ class DataHandler:
                     sheet_id = url.split('/d/')[1].split('/')[0]
                     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
             
-            response = requests.get(url, timeout=30)
+            response = requests.get(url)
             response.raise_for_status()
             
             df = pd.read_excel(BytesIO(response.content), engine='openpyxl')
