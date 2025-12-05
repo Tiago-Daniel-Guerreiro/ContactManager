@@ -69,11 +69,11 @@ def get_icon_path() -> Optional[str]:
         "icon_dark.png"
     ]
     
-    # Se for executável, procura em _MEIPASS primeiro
+    # PRIORIDADE 1: Se for executável, procura em _MEIPASS (ícones dentro do .exe)
     if getattr(sys, 'frozen', False):
         try:
             meipass = Path(getattr(sys, '_MEIPASS'))
-            print(f"Procurando em _MEIPASS: {meipass}")
+            print(f"Procurando em _MEIPASS (recursos empacotados): {meipass}")
             for icon_name in icon_names:
                 icon_path = meipass / icon_name
                 print(f"Tentando: {icon_path} - existe: {icon_path.exists()}")
@@ -83,9 +83,9 @@ def get_icon_path() -> Optional[str]:
         except Exception as e:
             print(f"Erro ao procurar em _MEIPASS: {e}")
     
-    # Procura no diretório base (pasta do .exe ou pasta do projeto)
+    # PRIORIDADE 2: Procura no diretório base (desenvolvimento ou fallback)
     base = get_base_dir()
-    print(f"Procurando em base_dir: {base}")
+    print(f"Procurando no diretório base: {base}")
     for icon_name in icon_names:
         icon_path = base / icon_name
         print(f"Tentando: {icon_path} - existe: {icon_path.exists()}")

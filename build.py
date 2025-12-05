@@ -63,7 +63,8 @@ def main():
             cmd,
             check=True
         )
-        print(f"\nExecutável criado em: dist/ContactManager.exe\n{result}")
+        print(f"\nExecutável criado em: dist/ContactManager.exe")
+        print("  Ícones empacotados dentro do .exe")
         return 0
         
     except subprocess.CalledProcessError as e:

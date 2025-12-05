@@ -15,25 +15,101 @@ except ImportError:
 
 
 def set_window_icon_unified(window, window_name="Window"):
-    """
-    Aplica ícone a qualquer tipo de janela (CTk ou CTkToplevel).
-    Usa o ícone apropriado para o tema atual do sistema.
-    """
     try:
-        from utils.theme.theme_detector import get_icon_path, get_windows_theme
+        from utils.theme.theme_detector import get_windows_theme
+        from pathlib import Path
+        from PIL import Image
+        import tkinter as tk
+        import sys
         
-        # Detecta tema e obtém ícone apropriado
+        # Detecta tema
         theme = get_windows_theme()
-        icon_path = get_icon_path(theme=theme)
         
-        if icon_path.exists():
-            window.iconbitmap(str(icon_path))
-            return True
-        else:
-            print(f"Ícone não encontrado: {icon_path}")
+        # Define nome do ícone baseado no tema
+        icon_name = f"icon_{'light' if theme == 'light' else 'dark'}.ico"
+        
+        # Procura o ícone: prioridade para _MEIPASS (executável empacotado)
+        icon_path = None
+        
+        # 1. Tenta _MEIPASS primeiro (executável)
+        if getattr(sys, 'frozen', False):
+            meipass = Path(getattr(sys, '_MEIPASS', ''))
+            test_path = meipass / icon_name
+            if test_path.exists():
+                icon_path = test_path
+                print(f"[{window_name}] Ícone encontrado em _MEIPASS: {icon_path}")
+        
+        # 2. Tenta diretório do script/executável
+        if icon_path is None:
+            if getattr(sys, 'frozen', False):
+                base_dir = Path(sys.executable).parent
+            else:
+                base_dir = Path(__file__).parent.parent.parent
+            
+            test_path = base_dir / icon_name
+            if test_path.exists():
+                icon_path = test_path
+                print(f"[{window_name}] Ícone encontrado em base_dir: {icon_path}")
+        
+        if icon_path is None or not icon_path.exists():
+            print(f"Ícone não encontrado: {icon_name}")
+            print(f"  Procurado em _MEIPASS: {getattr(sys, '_MEIPASS', 'N/A')}")
+            print(f"  Frozen: {getattr(sys, 'frozen', False)}")
             return False
+        
+        # Para janelas CTkToplevel (secundárias), usa iconphoto com conversão
+        if isinstance(window, ctk.CTkToplevel):
+            try:
+                # Carrega o .ico e converte para PhotoImage
+                img = Image.open(str(icon_path))
+                
+                # Redimensiona para 32x32 (padrão Windows)
+                if img.size[0] > 32 or img.size[1] > 32:
+                    try:
+                        # Tenta PIL 10+ primeiro
+                        img = img.resize((32, 32), Image.Resampling.LANCZOS)  # type: ignore
+                    except AttributeError:
+                        # Fallback para PIL 9 e anteriores
+                        img = img.resize((32, 32), Image.LANCZOS)  # type: ignore
+                
+                # Converte para RGB se necessário
+                if img.mode == 'RGBA':
+                    background = Image.new('RGB', img.size, (255, 255, 255))
+                    background.paste(img, mask=img.split()[3])
+                    img = background
+                elif img.mode != 'RGB':
+                    img = img.convert('RGB')
+                
+                # Salva em buffer e cria PhotoImage
+                import io
+                buffer = io.BytesIO()
+                img.save(buffer, format='PNG')
+                buffer.seek(0)
+                
+                photo = tk.PhotoImage(data=buffer.getvalue())
+                window.iconphoto(True, photo)
+                # Mantém referência para evitar garbage collection
+                setattr(window, '_icon_reference', photo)
+                
+                print(f"Ícone aplicado (CTkToplevel)")
+                return True
+            except Exception as e:
+                print(f"Erro ao aplicar ícone (CTkToplevel): {e}")
+                return False
+        else:
+            # Para janela principal (CTk), usa iconbitmap
+            try:
+                window.iconbitmap(str(icon_path))
+                print(f"Ícone aplicado (CTk)")
+                return True
+            except Exception as e:
+                print(f"Erro ao aplicar ícone (CTk): {e}")
+                return False
+                
     except Exception as e:
-        print(f"Erro ao aplicar ícone em {window_name}: {e}")
+        print(f"Erro geral ao aplicar ícone: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
@@ -227,23 +303,13 @@ class BaseMainWindow(ctk.CTk):
         self.grid_columnconfigure(0, weight=1)
         
         # Define ícone da janela principal (usa tema do sistema)
-        self._set_window_icon()
+        set_window_icon_unified(self, title)
         
         # Construir UI
         self._build_ui()
         
         # Mostrar após construção
         self.after(50, self._show_window)
-    
-    def _set_window_icon(self):
-        """Define o ícone baseado no tema do sistema"""
-        from utils.theme.theme_detector import get_icon_path
-        try:
-            icon_path = get_icon_path(theme=self.theme.current_theme)
-            if icon_path.exists():
-                self.iconbitmap(str(icon_path))
-        except Exception as e:
-            print(f"Erro ao definir ícone: {e}")
     
     def _show_window(self):
         self.deiconify()
@@ -253,13 +319,6 @@ class BaseMainWindow(ctk.CTk):
         pass # Implementado nas subclasses
     
     def apply_theme_to_widget(self, widget, widget_type: str = "default"):
-        """
-        Aplica cores do tema a um widget específico.
-        
-        Args:
-            widget: O widget CTk a ser estilizado
-            widget_type: Tipo do widget ('frame', 'button', 'label', 'entry', 'default')
-        """
         if widget_type == "frame":
             widget.configure(
                 fg_color=self.theme.get_surface(),
