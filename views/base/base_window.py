@@ -17,13 +17,23 @@ except ImportError:
 def set_window_icon_unified(window, window_name="Window"):
     """
     Aplica ícone a qualquer tipo de janela (CTk ou CTkToplevel).
-    Usa a função centralizada do icon_helper.
+    Usa o ícone apropriado para o tema atual do sistema.
     """
     try:
-        from utils.icon_helper import set_window_icon
-        return set_window_icon(window, window_name)
+        from utils.theme.theme_detector import get_icon_path, get_windows_theme
+        
+        # Detecta tema e obtém ícone apropriado
+        theme = get_windows_theme()
+        icon_path = get_icon_path(theme=theme)
+        
+        if icon_path.exists():
+            window.iconbitmap(str(icon_path))
+            return True
+        else:
+            print(f"Ícone não encontrado: {icon_path}")
+            return False
     except Exception as e:
-        print(f"Erro ao aplicar ícone: {e}")
+        print(f"Erro ao aplicar ícone em {window_name}: {e}")
         return False
 
 
@@ -50,12 +60,20 @@ class BaseWindow(ctk.CTkToplevel):
         self.geometry(f"{size[0]}x{size[1]}")
         self.resizable(resizable[0], resizable[1])
         
+        # Aplica cores do tema
+        self.configure(fg_color=self.theme.get_background())
+        
         # Configurar grid elástico na raiz
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
         
-        # Container principal com grid
-        self.main_frame = ctk.CTkFrame(self)
+        # Container principal com grid e cores do tema
+        self.main_frame = ctk.CTkFrame(
+            self,
+            fg_color=self.theme.get_background(),
+            border_color=self.theme.get_border(),
+            border_width=0
+        )
         self.main_frame.grid(row=0, column=0, sticky="nsew")
         
         # Callbacks
@@ -140,6 +158,45 @@ class BaseWindow(ctk.CTkToplevel):
             frame.grid_rowconfigure(row_idx, weight=weight)
         for col_idx, weight in cols:
             frame.grid_columnconfigure(col_idx, weight=weight)
+    
+    def apply_theme_to_widget(self, widget, widget_type: str = "default"):
+        """
+        Aplica cores do tema a um widget específico.
+        
+        Args:
+            widget: O widget CTk a ser estilizado
+            widget_type: Tipo do widget ('frame', 'button', 'label', 'entry', 'default')
+        """
+        if widget_type == "frame":
+            widget.configure(
+                fg_color=self.theme.get_surface(),
+                border_color=self.theme.get_border()
+            )
+        elif widget_type == "button":
+            widget.configure(
+                fg_color=self.theme.get_primary(),
+                hover_color=self.theme.get_primary(),
+                text_color=self.theme.get_text(),
+                border_color=self.theme.get_border()
+            )
+        elif widget_type == "label":
+            widget.configure(
+                text_color=self.theme.get_text(),
+                fg_color="transparent"
+            )
+        elif widget_type == "entry":
+            widget.configure(
+                fg_color=self.theme.get_surface(),
+                text_color=self.theme.get_text(),
+                border_color=self.theme.get_border()
+            )
+        elif widget_type == "text":
+            widget.configure(
+                fg_color=self.theme.get_surface(),
+                text_color=self.theme.get_text(),
+                border_color=self.theme.get_border()
+            )
+        # Adicione mais tipos conforme necessário
 
 
 class BaseMainWindow(ctk.CTk):   
@@ -162,11 +219,14 @@ class BaseMainWindow(ctk.CTk):
         self.geometry(f"{size[0]}x{size[1]}")
         self.minsize(min_size[0], min_size[1])
         
+        # Aplica cores do tema
+        self.configure(fg_color=self.theme.get_background())
+        
         # Grid elástico
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
         
-        # Define ícone da janela principal
+        # Define ícone da janela principal (usa tema do sistema)
         self._set_window_icon()
         
         # Construir UI
@@ -176,8 +236,14 @@ class BaseMainWindow(ctk.CTk):
         self.after(50, self._show_window)
     
     def _set_window_icon(self):
-        from utils.icon_helper import set_window_icon
-        set_window_icon(self, "MainWindow")
+        """Define o ícone baseado no tema do sistema"""
+        from utils.theme.theme_detector import get_icon_path
+        try:
+            icon_path = get_icon_path(theme=self.theme.current_theme)
+            if icon_path.exists():
+                self.iconbitmap(str(icon_path))
+        except Exception as e:
+            print(f"Erro ao definir ícone: {e}")
     
     def _show_window(self):
         self.deiconify()
@@ -185,3 +251,41 @@ class BaseMainWindow(ctk.CTk):
     
     def _build_ui(self):
         pass # Implementado nas subclasses
+    
+    def apply_theme_to_widget(self, widget, widget_type: str = "default"):
+        """
+        Aplica cores do tema a um widget específico.
+        
+        Args:
+            widget: O widget CTk a ser estilizado
+            widget_type: Tipo do widget ('frame', 'button', 'label', 'entry', 'default')
+        """
+        if widget_type == "frame":
+            widget.configure(
+                fg_color=self.theme.get_surface(),
+                border_color=self.theme.get_border()
+            )
+        elif widget_type == "button":
+            widget.configure(
+                fg_color=self.theme.get_primary(),
+                hover_color=self.theme.get_primary(),
+                text_color=self.theme.get_text(),
+                border_color=self.theme.get_border()
+            )
+        elif widget_type == "label":
+            widget.configure(
+                text_color=self.theme.get_text(),
+                fg_color="transparent"
+            )
+        elif widget_type == "entry":
+            widget.configure(
+                fg_color=self.theme.get_surface(),
+                text_color=self.theme.get_text(),
+                border_color=self.theme.get_border()
+            )
+        elif widget_type == "text":
+            widget.configure(
+                fg_color=self.theme.get_surface(),
+                text_color=self.theme.get_text(),
+                border_color=self.theme.get_border()
+            )

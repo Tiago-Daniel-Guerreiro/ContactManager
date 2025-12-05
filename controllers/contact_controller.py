@@ -163,14 +163,14 @@ class ContactController:
                 
                 whatsapp_sender = self._sender
                 
-                if hasattr(whatsapp_sender, "is_logged_in") and whatsapp_sender.is_logged_in:
+                if hasattr(whatsapp_sender, "islogged_in") and whatsapp_sender.islogged_in:
                     self._log("WhatsApp já está inicializado")
                     if on_complete:
                         on_complete(True, "WhatsApp já estava logado")
                     return True
                 
                 self._log("Inicializando WhatsApp Web...")
-                success = whatsapp_sender.initialize(log_callback=self._log)
+                success, msg = whatsapp_sender.initialize(log=self._log)
                 
                 if not success:
                     self._log("Erro ao inicializar WhatsApp Web")
@@ -182,7 +182,7 @@ class ContactController:
                 
                 # Aguarda login em thread separada para não bloquear
                 def wait_login_thread():
-                    success, msg = whatsapp_sender.wait_for_login(timeout=120, log_callback=self._log)
+                    success, msg = whatsapp_sender.wait_forlogin(timeout=120, log=self._log)
                     if success:
                         self._log("WhatsApp: Login confirmado")
                         if on_complete:
@@ -242,7 +242,7 @@ class ContactController:
         if method == "whatsapp":
             if not self._sender:
                 return False, "WhatsApp não inicializado. Clique em 'Inicializar' primeiro."
-            if WhatsAppSender and not (isinstance(self._sender, WhatsAppSender) and getattr(self._sender, 'is_logged_in', False)):
+            if WhatsAppSender and not (isinstance(self._sender, WhatsAppSender) and getattr(self._sender, 'islogged_in', False)):
                 return False, "WhatsApp não está logado. Clique em 'Inicializar' primeiro."
         elif method == "sms":
             if not self._sender:
@@ -434,7 +434,7 @@ class ContactController:
                     from utils.get_patch import get_base_dir
                     
                     # Determina método baseado no tipo de sender
-                    method = "whatsapp" if hasattr(self._sender, 'is_logged_in') else "sms"
+                    method = "whatsapp" if hasattr(self._sender, 'islogged_in') else "sms"
                     
                     reports_dir = get_base_dir() / "reports"
                     reports_dir.mkdir(exist_ok=True)
@@ -463,7 +463,7 @@ class ContactController:
             if isinstance(self._sender, WhatsAppSender):
                 try:
                     self._log("A encerrar WhatsApp...")
-                    self._sender.cleanup(log_callback=self._log)
+                    self._sender.close(log=self._log)
                 except Exception as e:
                     self._log(f"Erro ao encerrar WhatsApp: {e}")
     
@@ -594,11 +594,11 @@ class ContactController:
     def _check_stop_response(self, contact: Contact) -> bool:
         try:
             # Checa dinamicamente se o método existe e é chamável
-            if self._sender and hasattr(self._sender, 'check_for_stop_response') and callable(getattr(self._sender, 'check_for_stop_response', None)):
-                return self._sender.check_for_stop_response(
-                    contact.telemovel_normalizado,
-                    self._log
-                )
+            # (Apenas SMSSender tem este método, WhatsAppSender não)
+            if self._sender and hasattr(self._sender, 'check_for_stop_response'):
+                check_method = getattr(self._sender, 'check_for_stop_response', None)
+                if callable(check_method):
+                    return check_method(contact.telemovel_normalizado, self._log)  # type: ignore
         except Exception:
             pass
         return False

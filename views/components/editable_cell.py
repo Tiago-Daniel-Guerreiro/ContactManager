@@ -2,6 +2,15 @@ import customtkinter as ctk
 from typing import Any, Callable, Optional, List
 from abc import ABC, abstractmethod
 
+# Importa o ThemeManager
+try:
+    from config.settings import ThemeManager
+except ImportError:
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+    from config.settings import ThemeManager
+
 class EditableCell(ABC):
     def __init__(
         self,
@@ -16,6 +25,9 @@ class EditableCell(ABC):
         self._is_editing = False
         self._widget: Optional[ctk.CTkBaseClass] = None
         self._edit_widget: Optional[ctk.CTkBaseClass] = None
+        
+        # Obtém ThemeManager
+        self.theme = ThemeManager()
         
         # Cria widget de exibição
         self._create_display_widget(**kwargs)
@@ -105,7 +117,8 @@ class EditableTextCell(EditableCell):
         **kwargs
     ):
         self._truncate = truncate
-        self._text_color = text_color
+        # Usa cor do tema se não foi especificada
+        self._text_color = text_color or self.theme.get_text()
         
         self._widget = ctk.CTkLabel(
             self.parent,
@@ -113,7 +126,8 @@ class EditableTextCell(EditableCell):
             width=width,
             anchor=anchor,
             font=font,
-            text_color=text_color
+            text_color=self._text_color,
+            fg_color="transparent"
         )
         
         # Bind para edição
@@ -135,8 +149,13 @@ class EditableTextCell(EditableCell):
         if self._widget:
             self._widget.pack_forget()
         
-        # Cria Entry
-        self._edit_widget = ctk.CTkEntry(self.parent)
+        # Cria Entry com cores do tema
+        self._edit_widget = ctk.CTkEntry(
+            self.parent,
+            fg_color=self.theme.get_surface(),
+            text_color=self.theme.get_text(),
+            border_color=self.theme.get_border()
+        )
         self._edit_widget.insert(0, str(self._value) if self._value else "")
         self._edit_widget.pack(fill="x", padx=5)
         self._edit_widget.focus_set()
@@ -213,7 +232,14 @@ class EditableComboCell(EditableCell):
             self.parent,
             values=self._options,
             width=width,
-            command=self._on_select
+            command=self._on_select,
+            fg_color=self.theme.get_surface(),
+            text_color=self.theme.get_text(),
+            border_color=self.theme.get_border(),
+            button_color=self.theme.get_primary(),
+            button_hover_color=self.theme.get_primary(),
+            dropdown_fg_color=self.theme.get_surface(),
+            dropdown_text_color=self.theme.get_text()
         )
         
         if self._value and self._value in self._options:

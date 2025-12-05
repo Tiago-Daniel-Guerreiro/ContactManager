@@ -41,7 +41,7 @@ def set_app_user_model_id():
             import ctypes
             # Define um ID único para a aplicação
             # Isso faz o Windows reconhecer a app como diferente do Python
-            myappid = 'TiagoGuerreiro.ContactManager.WhatsAppSMS.6.0.0'
+            myappid = 'TiagoGuerreiro.ContactManager.WhatsAppSMS.6.2.1'
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
             return True
         except Exception as e:

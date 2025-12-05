@@ -6,7 +6,7 @@ ThemeType = Literal["light", "dark"]
 
 def get_windows_theme() -> ThemeType:
     if sys.platform != 'win32':
-        return "light"  # Default para outras plataformas
+        return "dark"  # Default para outras plataformas
     
     try:
         import winreg
