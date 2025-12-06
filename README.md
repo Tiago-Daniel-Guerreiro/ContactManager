@@ -92,6 +92,24 @@ Módulos inteiros foram reescritos à pressa para garantir funcionalidade a temp
 
 Limitações do CustomTkinter com janelas secundárias (`Toplevel`) causam inconsistências visuais nos ícones de pop-ups.
 
+### 5. Compatibilidade Multi-Plataforma (Linux)
+
+O código foi estruturado com intenção de compatibilidade multi-plataforma:
+
+- **Data Handler:** Totalmente compatível (manipulação JSON/Excel é agnóstica)
+- **Contact Service:** Totalmente compatível (lógica pura)
+- **Automação (Selenium/WPP.js):** Preparado, mas **não testado efetivamente** no Linux
+
+**Resultado:** O projeto pode ser compilado para Linux, mas é recomendado teste prévio da automação Selenium/Chrome nessa plataforma.
+
+### 6. Investigação Constante vs Tempo
+
+Durante o desenvolvimento, **não havia tempo para esperar pela "solução perfeita"**:
+
+- Enquanto implementava Fase 1 (cliques), investigava WPP.js em paralelo
+- Quando WPP.js provou ser viável, foi integrada nos **últimos 1-2 dias** do projeto
+- Decisão pragmática: implementação funcional > refatoração ideal
+
 ## 📊 Limitações e Decisões de Projeto
 
 | Aspecto | Ideal | Implementado | Justificativa |
