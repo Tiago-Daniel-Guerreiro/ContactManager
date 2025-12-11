@@ -67,6 +67,7 @@ Para organizar o código num tempo curto, adotei uma abordagem **MVC (Model-View
 - **View:** Interface gráfica construída com CustomTkinter (janelas, botões, tabelas).
 - **Controller:** Chama a lógica de negócio e responde às ações do utilizador.
 - **Service:** Serviços especializados para automação.
+- **Utils:** Código de suporte para várias partes da aplicação.
 
 > ⚠️ **Nota:** Devido ao curto prazo de entrega, não foi possível fazer a separação completa da lógica, resultando em classes com múltiplas responsabilidades (ex: `main_window` com ~700 linhas).
 
@@ -125,8 +126,8 @@ A aplicação está disponível como executável único, gerado com PyInstaller.
 2. Faça o download da versão mais recente.
 3. Execute diretamente no Windows (não é necessário ter Python instalado).
 
-> **Nota:** Para outras plataformas (Linux/Mac), é necessário compilar o código-fonte localmente. Utilize o `build.py`, garantindo que Python e todas as dependências estão instaladas. A compatibilidade pode variar, pois não foi possível realizar testes nestes sistemas.
-
+> **Nota:** Para outras plataformas (Linux/Mac), é necessário compilar o código-fonte localmente. Utilize o build.py, garantindo que o Python e todas as dependências estejam instalados. O sistema poderá não funcionar corretamente nessas plataformas, pois não foi possível assegurar a compatibilidade total dentro do prazo.
+> 
 ## 📚 Aprendizados
 
 ### Competências Técnicas
@@ -143,23 +144,10 @@ A aplicação está disponível como executável único, gerado com PyInstaller.
 
 ## 🔮 Próximos Passos
 
-### Curto Prazo
-
-- **Refatoração do WhatsAppSender:** Separar em `SessionManager`, `MessageSender`, `ContactValidator`
-- **Testes:** Unitários, integração, mocks do Selenium
-- **Validação completa do SMS:** Testes em múltiplos dispositivos e sistemas
-
-### Médio Prazo
-
-- **Sistema de filas e retry:** Fila com prioridade, retry inteligente, persistência de estado
-- **Dashboard de métricas:** Estatísticas em tempo real, histórico, análise por horário
-- **Multi-conta:** Múltiplas sessões WhatsApp, load balancing, rotação automática
-
-### Melhorias de Código
-
 - **Modularização:** Separar os métodos de envio em módulos independentes para facilitar a manutenção e evolução
 - **Contratos/Interfaces:** Definir interfaces para os serviços, permitindo substituição ou extensão sem alterar o restante do sistema
-- **UI:** Resolver bug dos ícones nas sub-janelas
+- **Dashboard de métricas:** Estatísticas em tempo real, histórico, análise por horário
+- **Multi-conta:** Múltiplas sessões WhatsApp, load balancing, rotação automática
 
 ## ⚠️ Nota de Responsabilidade
 
