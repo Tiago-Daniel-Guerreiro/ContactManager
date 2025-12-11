@@ -4,34 +4,113 @@ from pathlib import Path
 from datetime import datetime
 from typing import List
 from dataclasses import dataclass
+from utils.logger import get_logger
+from models.Result import Result, statusType, messageType
 
-
-@dataclass
-class SendReport:
-    contact_name: str
-    contact_phone: str
-    status: str  # 'sucesso', 'erro', 'inválido'
-    message: str
-    timestamp: str
-    message_type: str = 'geral'  # 'boas-vindas' ou 'geral'
-
-
-class ReportService:    
+class ReportGenerator:
+    
     @staticmethod
-    def generate_html_report(reports: List[SendReport], method: str, output_file: Path) -> bool:
+    def generate_statistics(reports: List[Result]) -> dict:
+        stats = {
+            "successful": 0,
+            "invalid": 0,
+            "errors": 0,
+            "total": len(reports),
+            "welcome_reports": 0,
+            "general_reports": 0,
+            "welcome_success": 0,
+            "general_success": 0,
+            "success_%": 0
+        }
+
+        status_map = {
+            statusType.SUCCESS: "successful",
+            statusType.INVALID: "invalid",
+            statusType.ERROR: "errors"
+        }
+
+        for report in reports:
+            # Conta por status
+            if report.status in status_map:
+                stats[status_map[report.status]] += 1
+
+            # Conta por tipo
+            is_welcome = report.message_type == messageType.WELCOME
+
+            if is_welcome:
+                stats["welcome_reports"] += 1
+                if report.status == statusType.SUCCESS:
+                    stats["welcome_success"] += 1
+            else:
+                stats["general_reports"] += 1
+                if report.status == statusType.SUCCESS:
+                    stats["general_success"] += 1
+
+        # Calcula percentagem de sucesso
+        if stats["total"] > 0:
+            stats["success_%"] = int(round((stats["successful"] / stats["total"] * 100), 0))
+
+        return stats
+
+    @staticmethod
+    def generate_table_html(reports: List[Result]) -> str:
+        status_config = {
+            statusType.SUCCESS: ("OK", "success"),
+            statusType.INVALID: ("INVÁLIDO", "invalid"),
+            statusType.ERROR: ("ERRO", "error")
+        }
+
+        type_config = {
+            messageType.WELCOME: ("Boas-vindas", "type-welcome"),
+            messageType.GENERAL: ("Geral", "type-general")
+        }
+
+        rows = []
+        for report in reports:
+            # Obtém configuração de status
+            status_text, status_class = status_config.get(
+                report.status,
+                ("ERRO", "error")
+            )
+
+            # Obtém configuração de tipo
+            type_text, type_class = type_config.get(
+                report.message_type,
+                ("Geral", "type-general")
+            )
+
+            rows.append(f"""            <tr>
+                <td>{report.contact_name}</td>
+                <td>{report.contact_phone}</td>
+                <td class=\"{type_class}\">{type_text}</td>
+                <td class=\"{status_class}\">{status_text}</td>
+                <td>{report.message}</td>
+                <td>{report.timestamp}</td>
+            </tr>""")
+
+        # Retorna tabela completa
+        return f"""    <table>
+        <thead>
+            <tr>
+            <th>Nome</th>
+            <th>Telefone</th>
+            <th>Tipo</th>
+            <th>Status</th>
+            <th>Observação</th>
+            <th>Data/Hora</th>
+            </tr>
+        </thead>
+        <tbody>
+{'\n'.join(rows)}
+        </tbody>
+        </table>"""
+
+    @staticmethod
+    def generate_html_report(reports: List[Result], method: str, output_file: Path) -> bool:
         try:
-            # Estatísticas gerais
-            successful = sum(1 for r in reports if r.status == "sucesso")
-            invalid = sum(1 for r in reports if r.status == "inválido")
-            errors = sum(1 for r in reports if r.status == "erro")
-            total = len(reports)
-            
-            # Estatísticas por tipo de mensagem
-            welcome_reports = [r for r in reports if r.message_type == 'boas-vindas']
-            general_reports = [r for r in reports if r.message_type == 'geral']
-            
-            welcome_success = sum(1 for r in welcome_reports if r.status == "sucesso")
-            general_success = sum(1 for r in general_reports if r.status == "sucesso")
+            # Obtém dados
+            stats = ReportGenerator.generate_statistics(reports)
+            table = ReportGenerator.generate_table_html(reports)
             
             html_content = f"""<!DOCTYPE html>
 <html>
@@ -48,19 +127,11 @@ class ReportService:
         }}
         h1 {{ margin-bottom: 5px; }}
         .subtitle {{ color: #666; margin-top: 0; }}
-        .summary {{
-            margin: 20px 0;
-        }}
+        .summary {{ margin: 20px 0; }}
         .summary p {{ margin: 8px 0; }}
         .success {{ color: green; }}
         .error {{ color: red; }}
         .invalid {{ color: orange; font-weight: bold; }}
-        .note {{
-            background: #fffbf0;
-            padding: 15px;
-            margin: 20px 0;
-            border-left: 3px solid #ff9800;
-        }}
         table {{
             width: 100%;
             border-collapse: collapse;
@@ -94,55 +165,16 @@ class ReportService:
     
     <div class="summary">
         <h2>Resumo</h2>
-        <p><strong>Total de envios:</strong> {total}</p>
-        <p class="success"><strong>Sucesso:</strong> {successful}/{total} ({(successful/total*100) if total > 0 else 0:.1f}%)</p>
-        <p class="invalid"><strong>Números Inválidos:</strong> {invalid}/{total}</p>
-        <p class="error"><strong>Erros:</strong> {errors}/{total}</p>
-        <p><strong>Boas-vindas:</strong> {len(welcome_reports)} ({welcome_success} com sucesso)</p>
-        <p><strong>Mensagens gerais:</strong> {len(general_reports)} ({general_success} com sucesso)</p>
+        <p><strong>Total de envios:</strong> {stats["total"]}</p>
+        <p class="success"><strong>Sucesso:</strong> {stats["successful"]}/{stats["total"]} ({stats["success_pct"]:.1f}%)</p>
+        <p class="invalid"><strong>Números Inválidos:</strong> {stats["invalid"]}/{stats["total"]}</p>
+        <p class="error"><strong>Erros:</strong> {stats["errors"]}/{stats["total"]}</p>
+        <p><strong>Boas-vindas:</strong> {stats["welcome_reports"]} ({stats["welcome_success"]} com sucesso)</p>
+        <p><strong>Mensagens gerais:</strong> {stats["general_reports"]} ({stats["general_success"]} com sucesso)</p>
     </div>
     
     <h2>Detalhes</h2>
-    <table>
-        <thead>
-            <tr>
-                <th>Nome</th>
-                <th>Telefone</th>
-                <th>Tipo</th>
-                <th>Status</th>
-                <th>Observação</th>
-                <th>Data/Hora</th>
-            </tr>
-        </thead>
-        <tbody>
-"""
-            
-            for report in reports:
-                if report.status == "sucesso":
-                    status_text = "OK"
-                    status_class = "success"
-                elif report.status == "inválido":
-                    status_text = "INVÁLIDO"
-                    status_class = "invalid"
-                else:
-                    status_text = "ERRO"
-                    status_class = "error"
-                
-                type_class = "type-welcome" if report.message_type == 'boas-vindas' else "type-general"
-                type_text = "Boas-vindas" if report.message_type == 'boas-vindas' else "Geral"
-                
-                html_content += f"""            <tr>
-                <td>{report.contact_name}</td>
-                <td>{report.contact_phone}</td>
-                <td class="{type_class}">{type_text}</td>
-                <td class="{status_class}">{status_text}</td>
-                <td>{report.message}</td>
-                <td>{report.timestamp}</td>
-            </tr>
-"""
-            
-            html_content += """        </tbody>
-    </table>
+{table}
     
     <div class="footer">
         <p>Relatório gerado automaticamente</p>
@@ -150,18 +182,17 @@ class ReportService:
 </body>
 </html>
 """
-            
-            # Salva arquivo HTML
             with open(output_file, 'w', encoding='utf-8') as f:
                 f.write(html_content)
             
             return True
+            
         except Exception as e:
-            print(f"Erro ao gerar relatório: {e}")
+            get_logger().error(f"Erro ao gerar relatório HTML ", source="ReportService", error=e)
             return False
-    
+        
     @staticmethod
-    def open_report(report_file: Path, log_callback=None) -> bool:
+    def open_report(report_file: Path) -> bool:
         try:
             if os.name == 'nt':  # Windows
                 os.startfile(str(report_file))
@@ -169,16 +200,19 @@ class ReportService:
                 webbrowser.open(f'file://{report_file}')
             return True
         except Exception as e:
-            if log_callback:
-                log_callback(f"Não foi possível abrir relatório: {e}")
+            get_logger().error(f"Não foi possível abrir relatório ", source="ReportService", error=e)
             return False
     
     @staticmethod
-    def create_report_filename(method: str, base_dir: Path) -> Path:
-        reports_dir = base_dir / "reports"
-        reports_dir.mkdir(parents=True, exist_ok=True)
-        
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        report_file = reports_dir / f"relatorio_{method}_{timestamp}.html"
-        
-        return report_file
+    def create_report_filename(method: str, base_dir: Path) -> Path|None:
+        try:
+            reports_dir = base_dir / "reports"
+            reports_dir.mkdir(parents=True, exist_ok=True)
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            report_file = reports_dir / f"relatorio_{method}_{timestamp}.html"
+            
+            return report_file
+        except Exception as e:
+            get_logger().error(f"Erro ao criar nome de ficheiro para relatório ", source="ReportService", error=e)
+            return None

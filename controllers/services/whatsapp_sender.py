@@ -1,5 +1,3 @@
-#pip install requests psutil selenium webdriver-manager
-
 import time
 import os
 import psutil
@@ -11,58 +9,57 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.edge.service import Service
 from selenium.webdriver.edge.options import Options
 from selenium.common.exceptions import TimeoutException, WebDriverException
-from typing import Optional, Callable, Tuple, Any
+from typing import Optional, Tuple, Any
 from dataclasses import dataclass
 from datetime import datetime
+from utils.logger import get_logger
+from models.Result import Result, statusType, messageType
+from models.contact import Contact
 
-@dataclass
-class WhatsAppResult:
-    success: bool
-    message: str
-    phone_sent_to: str
-    timestamp: str
-    status_code: str
+SOURCE = "WhatsApp_Sender"
 
 class WhatsAppSender:    
     WHATSAPP_URL = "https://web.whatsapp.com"
     WPP_JS_URL = "https://github.com/wppconnect-team/wa-js/releases/download/nightly/wppconnect-wa.js"
     
-    def __init__(self, log_callback: Optional[Callable] = None):
+    def __init__(self):
         self.driver: Optional[webdriver.Edge] = None 
         self.session_dir = os.path.abspath(
             os.path.join(os.path.expanduser("~"), ".whatsapp_edge_session_fast")
         )
-        self._log_callback = log_callback
+        self.logger = get_logger()
         self._invalid_numbers: set = set()
         self._wpp_js_cache: Optional[str] = None
-    
-    def _log(self, message: str):
-        if self._log_callback:
-            try:
-                self._log_callback(message)
-            except:
-                print(f"{message}")
-                
-    def initialize(self, log: Optional[Callable] = None, **kwargs) -> Tuple[bool, str]:
-        if log: 
-            self._log_callback = log
+
+    def initialize(self, **kwargs) -> Tuple[bool, str]:
         return self._initialize_internal()
 
-    def wait_forlogin(self, timeout: int = 120, log: Optional[Callable] = None) -> Tuple[bool, str]:
-        if log:
-            self._log_callback = log
+    def wait_forlogin(self, timeout: int = 120) -> Tuple[bool, str]:
         return self.wait_for_login(timeout)
 
-    def send_message(self, phone: str, message: str, log: Optional[Callable] = None) -> WhatsAppResult:
-        if log:
-            self._log_callback = log
-        result = self.verify_stop_and_send(phone, message)
+    def send_message(self, phone: str, message: str, contact_name: str = "", message_type: messageType = messageType.GENERAL) -> Result:
+        result = self.verify_stop_and_send(phone, message, contact_name, message_type)
         
-        if result.status_code == "INVALIDO":
-            clean_phone = ''.join(filter(str.isdigit, phone))
-            self._invalid_numbers.add(clean_phone)
+        if result.status == statusType.INVALID:
+            # Armazena versão apenas com dígitos e com código de país (sem + / espaços)
+            try:
+                phone_digits: str = self._format_phone(phone).split('@')[0]
+            except Exception:
+                phone_digits = ''.join(filter(str.isdigit, phone))
+                if len(phone_digits) == 9:
+                    phone_digits = f"351{phone_digits}"
+            self._invalid_numbers.add(phone_digits)
             
         return result
+    
+    def send_message_report(
+        self, 
+        contact_name: str, 
+        phone: str, 
+        message: str, 
+        message_type: messageType = messageType.GENERAL
+    ) -> Result:
+        return self.send_message(phone, message, contact_name, message_type)
 
     @property
     def is_logged_in(self) -> bool:
@@ -77,7 +74,7 @@ class WhatsAppSender:
             return False
 
     def _kill_specific_session_processes(self):
-        self._log("Encerrando processos anteriores...")
+        self.logger.debug("Encerrando processos anteriores...", source=SOURCE)
         target_folder = os.path.basename(self.session_dir).lower()
         killed = 0
         
@@ -100,11 +97,11 @@ class WhatsAppSender:
                 continue
                 
         if killed > 0:
-            self._log(f"{killed} processo(s) encerrado(s)")
+            self.logger.debug(f"{killed} processo(s) encerrado(s)", source=SOURCE)
             time.sleep(2)
 
     def _prepare_session(self):
-        self._log(f"Preparando sessão em: {self.session_dir}")
+        self.logger.debug(f"Preparando sessão em: {self.session_dir}", source=SOURCE)
         os.makedirs(self.session_dir, exist_ok=True)
         
         lock_files = ["SingletonLock", "SingletonSocket", "SingletonCookie", "lockfile"]
@@ -119,29 +116,29 @@ class WhatsAppSender:
     def _get_edge_driver_service(self) -> Service:
         local_driver = os.path.join(os.getcwd(), "msedgedriver.exe")
         if os.path.exists(local_driver): 
-            self._log(f"Usando msedgedriver local: {local_driver}")
+            self.logger.debug(f"Usando msedgedriver local: {local_driver}", source=SOURCE)
             return Service(executable_path=local_driver)
         
         try:
-            self._log("Tentando webdriver-manager...")
+            self.logger.debug("A tentar webdriver-manager...", source=SOURCE)
             from webdriver_manager.microsoft import EdgeChromiumDriverManager
             driver_path = EdgeChromiumDriverManager().install()
-            self._log(f"Driver obtido: {driver_path}")
+            self.logger.debug(f"Driver obtido: {driver_path}", source=SOURCE)
             return Service(executable_path=driver_path)
         except Exception as e:
-            self._log(f"WebDriver Manager falhou: {e}")
+            self.logger.warning(f"WebDriver Manager falhou: {e}", source=SOURCE)
         
-        self._log("Usando Service padrão (PATH do sistema)")
+        self.logger.debug("Usando Service padrão (PATH do sistema)", source=SOURCE)
         return Service()
 
     def _initialize_internal(self) -> Tuple[bool, str]:
         try:
-            self._log("Iniciando o WhatsApp Sender.")
+            self.logger.info("Iniciando o WhatsApp Sender.", source=SOURCE)
             
             self._kill_specific_session_processes()
             self._prepare_session()
             
-            self._log("Configurando navegador...")
+            self.logger.debug("Configurando navegador...", source=SOURCE)
             options = Options()
             options.add_argument(f"--user-data-dir={self.session_dir}")
             options.add_argument("--profile-directory=Default")
@@ -160,12 +157,12 @@ class WhatsAppSender:
             service = self._get_edge_driver_service()
             service.creation_flags = 0x08000000 | 0x00000008 | 0x00000200
             
-            self._log("Iniciando Edge...")
+            self.logger.debug("Iniciando Edge...", source=SOURCE)
             try:
                 self.driver = webdriver.Edge(service=service, options=options)
             except Exception as e:
                 if "user data" in str(e).lower():
-                    self._log("Conflito detectado, tentando novamente...")
+                    self.logger.warning("Conflito detectado, a tentar novamente...", source=SOURCE)
                     self._kill_specific_session_processes()
                     time.sleep(2)
                     self.driver = webdriver.Edge(service=service, options=options)
@@ -176,7 +173,7 @@ class WhatsAppSender:
             self.driver.set_script_timeout(30)
             self.driver.implicitly_wait(10)
             
-            self._log("Abrindo WhatsApp Web...")
+            self.logger.info("Abrindo WhatsApp Web...", source=SOURCE)
             self.driver.get(self.WHATSAPP_URL)
             
             try:
@@ -184,31 +181,31 @@ class WhatsAppSender:
             except:
                 pass
             
-            self._log("Browser iniciado com sucesso!")
-            return True, "Browser Iniciado"
+            self.logger.info("Navegador iniciado com sucesso!", source=SOURCE)
+            return True, "Navegador Iniciado"
             
         except WebDriverException as e:
             error_msg = f"Erro do WebDriver: {str(e)[:200]}"
-            self._log(f"Erro: {error_msg}")
+            self.logger.error(f"Erro: {error_msg}", source=SOURCE)
             return False, error_msg
         except Exception as e:
             error_msg = f"Erro na inicialização: {str(e)[:200]}"
-            self._log(f"Erro: {error_msg}")
+            self.logger.error(f"Erro: {error_msg}", source=SOURCE)
             return False, error_msg
 
     def _download_wpp_js(self) -> Optional[str]:
         if self._wpp_js_cache:
             return self._wpp_js_cache
             
-        self._log("Baixando WPP.js...")
+        self.logger.info("Baixando WPP.js...", source=SOURCE)
         try:
             response = requests.get(self.WPP_JS_URL, timeout=30)
             response.raise_for_status()
             self._wpp_js_cache = response.text
-            self._log(f"WPP.js baixado ({len(self._wpp_js_cache)} bytes)")
+            self.logger.info(f"WPP.js baixado ({len(self._wpp_js_cache)} bytes)", source=SOURCE)
             return self._wpp_js_cache
         except Exception as e:
-            self._log(f"Erro ao baixar WPP.js: {e}")
+            self.logger.error(f"Erro ao baixar WPP.js: {e}", source=SOURCE)
             return None
 
     def _inject_wpp_js(self) -> bool:
@@ -222,7 +219,7 @@ class WhatsAppSender:
                     "return typeof WPP !== 'undefined' && WPP.isReady === true;"
                 )
                 if is_ready:
-                    self._log("WPP.js já está carregado e pronto")
+                    self.logger.info("WPP.js já está carregado e pronto", source=SOURCE)
                     return True
             except:
                 pass
@@ -233,7 +230,7 @@ class WhatsAppSender:
                 return False
             
             # Aguarda a página estar completamente carregada
-            self._log("Aguardando página carregar completamente...")
+            self.logger.debug("Aguardando página carregar completamente...", source=SOURCE)
             for _ in range(30):
                 ready_state = self.driver.execute_script("return document.readyState;")
                 if ready_state == "complete":
@@ -241,34 +238,34 @@ class WhatsAppSender:
                 time.sleep(1)
             
             # Verifica se os módulos do WhatsApp estão carregados
-            self._log("Verificando módulos do WhatsApp...")
+            self.logger.debug("Verificando módulos do WhatsApp...", source=SOURCE)
             for i in range(30):
                 has_modules = self.driver.execute_script("""
                     return typeof window.require !== 'undefined' || 
                            typeof window.webpackChunkwhatsapp_web_client !== 'undefined';
                 """)
                 if has_modules:
-                    self._log(f"Módulos encontrados após {i+1}s")
+                    self.logger.debug(f"Módulos encontrados após {i+1}s", source=SOURCE)
                     break
                 time.sleep(1)
             else:
-                self._log("Módulos não encontrados, tentando mesmo assim...")
+                self.logger.warning("Módulos não encontrados, a tentar mesmo assim...", source=SOURCE)
             
             # Injeta o script
-            self._log("Injetando WPP.js...")
+            self.logger.debug("Injetando WPP.js...", source=SOURCE)
             self.driver.execute_script(js_content)
             time.sleep(2)
             
             # Verifica se WPP foi definido
             wpp_exists = self.driver.execute_script("return typeof WPP !== 'undefined';")
-            self._log(f"WPP definido: {wpp_exists}")
+            self.logger.debug(f"WPP definido: {wpp_exists}", source=SOURCE)
             
             if not wpp_exists:
-                self._log("WPP não foi definido após injeção")
+                self.logger.error("WPP não foi definido após injeção", source=SOURCE)
                 return False
             
             # Inicializa usando a Promise do webpack
-            self._log("Inicializando via WPP.webpack.isReady...")
+            self.logger.debug("Inicializando via WPP.webpack.isReady...", source=SOURCE)
             
             # Tenta inicializar de diferentes formas
             init_result = self.driver.execute_script("""
@@ -317,14 +314,14 @@ class WhatsAppSender:
                 });
             """)
             
-            self._log(f"Resultado da inicialização: {init_result}")
+            self.logger.debug(f"Resultado da inicialização: {init_result}", source=SOURCE)
             
             if init_result and init_result.get('success'):
-                self._log(f"WPP.js pronto via {init_result.get('method')}")
+                self.logger.info(f"WPP.js pronto via {init_result.get('method')}", source=SOURCE)
                 return True
             
             # Fallback: verifica se a API funciona
-            self._log("Verificando se API funciona (fallback)...")
+            self.logger.debug("Verificando se API funciona (fallback)...", source=SOURCE)
             try:
                 api_works = self.driver.execute_script("""
                     try {
@@ -338,23 +335,23 @@ class WhatsAppSender:
                         return {error: e.toString()};
                     }
                 """)
-                self._log(f"  Status da API: {api_works}")
+                self.logger.debug(f"  Status da API: {api_works}", source=SOURCE)
                 
                 if (api_works.get('hasContact') and 
                     api_works.get('hasChat') and 
                     api_works.get('hasQueryExists')):
-                    self._log("A API parece funcional!")
+                    self.logger.info("A API parece funcional!", source=SOURCE)
                     return True
             except Exception as e:
-                self._log(f"Erro ao verificar API: {e}")
+                self.logger.error(f"Erro ao verificar API: {e}", source=SOURCE)
             
-            self._log("Falha na inicialização do WPP.js")
+            self.logger.error("Falha na inicialização do WPP.js", source=SOURCE)
             return False
             
         except Exception as e:
-            self._log(f"Erro na injeção JS: {e}")
+            self.logger.error(f"Erro na injeção JS: {e}", source=SOURCE)
             import traceback
-            self._log(traceback.format_exc())
+            self.logger.error(traceback.format_exc(), source=SOURCE)
             return False
 
     def wait_for_login(self, timeout: int = 120) -> Tuple[bool, str]:
@@ -364,7 +361,7 @@ class WhatsAppSender:
         # Verifica se já está logado
         try:
             if len(self.driver.find_elements(By.CSS_SELECTOR, '#pane-side')) > 0:
-                self._log("Já está logado!")
+                self.logger.info("Já está logado!", source=SOURCE)
                 time.sleep(3)
                 if self._inject_wpp_js():
                     return True, "Já logado e API Pronta"
@@ -372,8 +369,8 @@ class WhatsAppSender:
         except:
             pass
             
-        self._log(f"Aguardando login (timeout: {timeout}s)...")
-        self._log("Escaneie o QR Code no celular")
+        self.logger.info(f"Aguardando login (timeout: {timeout}s)...", source=SOURCE)
+        self.logger.info("Escaneie o QR Code no celular", source=SOURCE)
         
         try:
             self.driver.maximize_window()
@@ -384,7 +381,7 @@ class WhatsAppSender:
             WebDriverWait(self.driver, timeout).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, '#pane-side'))
             )
-            self._log("Login detectado!")
+            self.logger.info("Login detectado!", source=SOURCE)
             
             try:
                 self.driver.minimize_window()
@@ -392,11 +389,11 @@ class WhatsAppSender:
                 pass
             
             # Espera mais tempo para o WhatsApp carregar completamente
-            self._log("Aguardando WhatsApp carregar...")
+            self.logger.debug("Aguardando WhatsApp carregar...", source=SOURCE)
             time.sleep(5)
             
             if self._inject_wpp_js():
-                self._log("Pronto para enviar mensagens!")
+                self.logger.info("Pronto para enviar mensagens!", source=SOURCE)
                 return True, "Logado e API Pronta"
             else:
                 return False, "Logado mas falha na API JS"
@@ -407,19 +404,15 @@ class WhatsAppSender:
             return False, f"Erro: {str(e)[:100]}"
 
     def _format_phone(self, phone: str) -> str:
-        digits = ''.join(filter(str.isdigit, phone))
-        
-        # Se o número tem apenas 9 dígitos (número português sem código do país)
-        # adiciona o código +351
-        if len(digits) == 9:
-            digits = f"351{digits}"
-        # Se começa com 9 e tem 11 ou 12 dígitos, pode estar faltando o 351
-        elif len(digits) in [11, 12] and not digits.startswith('351'):
-            # Verifica se não tem outro código de país comum
-            if not any(digits.startswith(code) for code in ['1', '44', '49', '33', '34', '39']):
-                digits = f"351{digits[-9:]}"  # Pega os últimos 9 dígitos e adiciona 351
-        
-        return f"{digits}@c.us"
+        # Garante que devolve um ID válido para a API: apenas dígitos + código do país, sem '+' nem espaços
+        # Ex: '912345678' -> '351912345678@c.us'; '+351 912 345 678' -> '351912345678@c.us'
+        raw = ''.join(filter(str.isdigit, str(phone)))
+
+        # Se vier apenas com 9 dígitos (número nacional), assume Portugal (351)
+        if len(raw) == 9:
+            raw = f"351{raw}"
+
+        return f"{raw}@c.us"
 
     def _safe_async_script(self, script: str, *args, timeout: int = 20) -> Any:
         if not self.driver:
@@ -441,21 +434,21 @@ class WhatsAppSender:
             except:
                 pass
 
-    def verify_stop_and_send(self, phone: str, message: str) -> WhatsAppResult:
+    def verify_stop_and_send(self, phone: str, message: str, contact_name: str = "", message_type: messageType = messageType.GENERAL) -> Result:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         phone_id = self._format_phone(phone)
-        clean_phone = phone_id.split('@')[0] # Apenas dígitos
+        clean_phone: str = phone_id.split('@')[0]  # Apenas dígitos
 
         if self.driver is None:
-            return WhatsAppResult(False, "Driver Off", clean_phone, timestamp, "ERRO")
+            return Result(contact_name, clean_phone, statusType.ERROR, "Driver Off", timestamp, message_type)
 
         if clean_phone in self._invalid_numbers:
-            return WhatsAppResult(False, "Número Inválido (Cache)", clean_phone, timestamp, "INVALIDO")
+            return Result(contact_name, clean_phone, statusType.INVALID, "Número Inválido (Cache)", timestamp, message_type)
 
         try:
-            self._log(f"Processando: {clean_phone}")
+            self.logger.debug(f"Processando: {clean_phone}", source=SOURCE)
             
-            # 1. Verificar se número existe
+            # Verificar se número existe
             exists_script = """
                 var callback = arguments[arguments.length - 1];
                 try {
@@ -470,15 +463,15 @@ class WhatsAppSender:
             try:
                 contact_info = self._safe_async_script(exists_script, phone_id, timeout=15)
             except TimeoutException:
-                self._log(f"Timeout ao verificar número: {clean_phone}")
-                return WhatsAppResult(False, "Número Inválido (Timeout)", clean_phone, timestamp, "INVALIDO")
+                self.logger.warning(f"Timeout ao verificar número: {clean_phone}", source=SOURCE)
+                return Result(contact_name, clean_phone, statusType.INVALID, "Número Inválido (Timeout)", timestamp, message_type)
             except Exception as e:
-                self._log(f"Erro ao verificar número: {clean_phone} - {e}")
-                return WhatsAppResult(False, "Número Inválido (Erro)", clean_phone, timestamp, "INVALIDO")
+                self.logger.warning(f"Erro ao verificar número: {clean_phone} - {e}", source=SOURCE)
+                return Result(contact_name, clean_phone, statusType.INVALID, "Número Inválido (Erro)", timestamp, message_type)
             
             if not contact_info:
-                self._log(f"Número inválido: {clean_phone}")
-                return WhatsAppResult(False, "Número Inválido", clean_phone, timestamp, "INVALIDO")
+                self.logger.info(f"Número inválido: {clean_phone}", source=SOURCE)
+                return Result(contact_name, clean_phone, statusType.INVALID, "Número Inválido", timestamp, message_type)
 
             actual_id = phone_id
             try:
@@ -486,9 +479,9 @@ class WhatsAppSender:
             except:
                 pass
                 
-            self._log(f"Número válido: {actual_id}")
+            self.logger.debug(f"Número válido: {actual_id}", source=SOURCE)
 
-            # 2. Verificar última mensagem (PARAR)
+            # Verificar última mensagem (PARAR)
             hist_script = """
                 var callback = arguments[arguments.length - 1];
                 try {
@@ -511,13 +504,13 @@ class WhatsAppSender:
                 last_msg = self._safe_async_script(hist_script, actual_id, timeout=15)
                 
                 if last_msg and str(last_msg).strip().upper() == "PARAR":
-                    self._log(f"Parar detectado: {clean_phone}")
-                    return WhatsAppResult(False, "PARAR Detectado", clean_phone, timestamp, "PARAR_DETECTADO")
+                    self.logger.info(f"Parar detectado: {clean_phone}", source=SOURCE)
+                    return Result(contact_name, clean_phone, statusType.ERROR, "PARAR Detectado", timestamp, message_type)
             except Exception as e:
-                self._log(f"Erro ao verificar histórico: {e}")
+                self.logger.warning(f"Erro ao verificar histórico: {e}", source=SOURCE)
 
-            # 3. Enviar mensagem
-            self._log(f"Enviando mensagem...")
+            # Enviar mensagem
+            self.logger.debug(f"Enviando mensagem...", source=SOURCE)
             send_script = """
                 var callback = arguments[arguments.length - 1];
                 try {
@@ -536,35 +529,35 @@ class WhatsAppSender:
             result = self._safe_async_script(send_script, actual_id, message, timeout=20)
             
             if result and result.get('success'):
-                self._log(f"Enviado para: {clean_phone}")
-                return WhatsAppResult(True, "Enviado", clean_phone, timestamp, "ENVIADO")
+                self.logger.info(f"Enviado para: {clean_phone}", source=SOURCE)
+                return Result(contact_name, clean_phone, statusType.SUCCESS, "Enviado", timestamp, message_type)
             else:
                 err = result.get('error') if result else "Erro desconhecido"
                 err_str = str(err).lower()
                 
                 # Erros que indicam número inválido/sem WhatsApp
                 if any(x in err_str for x in ['no lid for user', 'lid', 'not found', 'does not exist']):
-                    self._log(f"Número inválido/sem WhatsApp: {clean_phone} - {err}")
-                    return WhatsAppResult(False, f"Número Inválido: {err}", clean_phone, timestamp, "INVALIDO")
+                    self.logger.warning(f"Número inválido/sem WhatsApp: {clean_phone} - {err}", source=SOURCE)
+                    return Result(contact_name, clean_phone, statusType.INVALID, f"Número Inválido: {err}", timestamp, message_type)
                 
-                self._log(f"Erro ao enviar: {err}")
-                return WhatsAppResult(False, f"Erro: {err}", clean_phone, timestamp, "ERRO")
+                self.logger.error(f"Erro ao enviar: {err}", source=SOURCE)
+                return Result(contact_name, clean_phone, statusType.ERROR, f"Erro: {err}", timestamp, message_type)
 
         except TimeoutException:
-            self._log(f"Timeout para: {clean_phone}")
-            return WhatsAppResult(False, "Timeout", clean_phone, timestamp, "ERRO")
+            self.logger.error(f"Timeout para: {clean_phone}", source=SOURCE)
+            return Result(contact_name, clean_phone, statusType.ERROR, "Timeout", timestamp, message_type)
         except Exception as e:
-            self._log(f"Erro: {e}")
-            return WhatsAppResult(False, str(e)[:100], clean_phone, timestamp, "ERRO")
+            self.logger.error(f"Erro: {e}", source=SOURCE)
+            return Result(contact_name, clean_phone, statusType.ERROR, str(e)[:100], timestamp, message_type)
 
-    def close(self, log: Optional[Callable] = None):
-        self._log("Encerrando navegador...")
+    def close(self):
+        self.logger.info("Encerrando navegador...", source=SOURCE)
         if self.driver:
             try: 
                 self.driver.quit()
-                self._log("Navegador encerrado")
+                self.logger.info("Navegador encerrado", source=SOURCE)
             except Exception as e:
-                self._log(f"Erro ao encerrar: {e}")
+                self.logger.error(f"Erro ao encerrar: {e}", source=SOURCE)
         self.driver = None
 
 if __name__ == "__main__":

@@ -1,11 +1,9 @@
 from typing import Tuple, Optional
 from models.contact import Contact
 
-
 class MessageType:
     WELCOME = 'boas-vindas'
     GENERAL = 'geral'
-
 
 class MessageService:
     @staticmethod
@@ -47,6 +45,5 @@ class MessageService:
         if not general_template or not general_template.strip():
             return False, "Mensagem geral é obrigatória"
         
-        # Template de boas-vindas é opcional, não precisa validar
-        
+        # Por enquanto, a mensagem de boas vindas é opcional
         return True, ""

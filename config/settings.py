@@ -8,7 +8,7 @@ ThemeType = Literal["light", "dark"]
 class ThemeColors:    
     # Cores de status dos contactos (iguais em ambos os temas)
     inactive: str = "#ff4444"      # Vermelho - desativado
-    pending: str = "#ff8800"       # Laranja - sem envio
+    pending: str = "#cc6e03"       # Laranja - sem envio
     active: str = "#44ff44"        # Verde - ativo
     deselected: str = "#888888"    # Cinza - não selecionado
     
@@ -26,9 +26,9 @@ class ThemeColors:
     # Cores da UI - Tema claro
     background_light: str = "#ffffff"
     surface_light: str = "#f5f5f5"
-    primary_light: str = "#2563eb"
+    primary_light: str = "#668fe7"
     success_light: str = "#16a34a"
-    warning_light: str = "#d97706"
+    warning_light: str = "#9f5200"
     error_light: str = "#dc2626"
     text_light: str = "#1a1a1a"
     text_secondary_light: str = "#6b7280"

@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
+from utils.logger import get_logger
 
 class ConfigService:
     DEFAULT_CONFIG = {
@@ -14,6 +15,7 @@ class ConfigService:
     def __init__(self, config_file: Path):
         self.config_file = config_file
         self.config_file.parent.mkdir(parents=True, exist_ok=True)
+        self.logger = get_logger()
     
     def load(self) -> Dict[str, Any]:
         try:
@@ -26,7 +28,7 @@ class ConfigService:
             else:
                 return self.DEFAULT_CONFIG.copy()
         except Exception as e:
-            print(f"Erro ao carregar configuração: {e}")
+            self.logger.error(f"Erro ao carregar configuração: {e}", "ConfigService")
             return self.DEFAULT_CONFIG.copy()
     
     def save(self, config: Dict[str, Any]) -> Tuple[bool, str]:

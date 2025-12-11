@@ -1,4 +1,5 @@
 # Gestor de Contactos
+
 ![Language](https://img.shields.io/badge/Python-3.13%2B-blue.svg)
 ![Automation](https://img.shields.io/badge/Automation-Selenium%20%7C%20WPPConnect-orange.svg)
 ![UI](https://img.shields.io/badge/UI-CustomTkinter-purple.svg)
@@ -35,17 +36,18 @@ O **Contact Manager** oferece um ambiente completo e otimizado para a gestão de
 ### 🚀 Módulos de Envio
 
 #### **WhatsApp**
+
 A evolução da performance através da injeção direta de código:
+
 - **Abordagem Inicial:** Simulação de cliques (lento, ~4 msg/min).
 - **Solução Final:** Injeção de JavaScript via consola do navegador (WPP.js).
-- **Resultado:** Aumento para **10-15 mensagens/minuto** (com potencial de até 45 msg/min em testes).
+- **Resultado:** Aumento para **até 45 mensagens/minuto em testes**.
 
 #### **SMS**
+
 - **Tecnologia:** Comandos ADB para instruir um telemóvel Android via USB.
 - **Função:** Backup fiável para quando o WhatsApp não é aplicável.
 - **Velocidade:** ~2-5 SMS por minuto.
-
----
 
 ### 🌟 Funcionalidades Principais
 
@@ -59,12 +61,12 @@ A evolução da performance através da injeção direta de código:
 
 ## 🏗️ Arquitetura
 
-Para organizar o código num tempo recorde, adotei uma abordagem **MVC (Model-View-Controller)** adaptada:
+Para organizar o código num tempo curto, adotei uma abordagem **MVC (Model-View-Controller)** adaptada:
 
 - **Model:** Representa as entidades principais do sistema, como Contactos.
 - **View:** Interface gráfica construída com CustomTkinter (janelas, botões, tabelas).
-- **Controller:** Coordena a lógica de negócio e responde às ações do utilizador.
-- **Service:** Serviços especializados para automação (envio WhatsApp, SMS, validação).
+- **Controller:** Chama a lógica de negócio e responde às ações do utilizador.
+- **Service:** Serviços especializados para automação.
 
 > ⚠️ **Nota:** Devido ao curto prazo de entrega, não foi possível fazer a separação completa da lógica, resultando em classes com múltiplas responsabilidades (ex: `main_window` com ~700 linhas).
 
@@ -74,9 +76,9 @@ Para organizar o código num tempo recorde, adotei uma abordagem **MVC (Model-Vi
 
 | Fase | Abordagem | Performance | Problema |
 |------|-----------|-------------|----------|
-| **1** | Simulação de cliques | ~1-2 msg/min | Lento, vulnerável a mudanças de layout |
+| **1** | Simulação de cliques | ~2-4 msg/min | Lento, vulnerável a mudanças de layout |
 | **2** | Pesquisa de alternativas | - | Análise de APIs e bibliotecas JS |
-| **3** | WPP.js injetado | 10-15 msg/min | Solução final implementada |
+| **3** | WPP.js injetado | até 45 msg/min | Solução final implementada |
 
 ### 2. Refatoração Constante sob Pressão
 
@@ -92,17 +94,7 @@ Módulos inteiros foram reescritos à pressa para garantir funcionalidade a temp
 
 Limitações do CustomTkinter com janelas secundárias (`Toplevel`) causam inconsistências visuais nos ícones de pop-ups.
 
-### 5. Compatibilidade Multi-Plataforma (Linux)
-
-O código foi estruturado com intenção de compatibilidade multi-plataforma:
-
-- **Data Handler:** Totalmente compatível (manipulação JSON/Excel é agnóstica)
-- **Contact Service:** Totalmente compatível (lógica pura)
-- **Automação (Selenium/WPP.js):** Preparado, mas **não testado efetivamente** no Linux
-
-**Resultado:** O projeto pode ser compilado para Linux, mas é recomendado teste prévio da automação Selenium/Chrome nessa plataforma.
-
-### 6. Investigação Constante vs Tempo
+### 5. Investigação Constante vs Tempo
 
 Durante o desenvolvimento, **não havia tempo para esperar pela "solução perfeita"**:
 

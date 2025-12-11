@@ -15,69 +15,74 @@ class SendStatus(Enum):
 class Contact:
     nome: str
     telemovel: str
-    telemovel_normalizado: str = ""
     ultimo_envio: str = ""
     ativo: bool = True
     selecionado: bool = True
-    is_valid: bool = True
-    _deleted: bool = field(default=False, init=False, repr=False)
-    
-    def __post_init__(self):
-        if not self.telemovel_normalizado:
-            self.telemovel_normalizado = self._normalize_phone(self.telemovel)
-            self.is_valid = self._validate_phone(self.telemovel_normalizado)
-    
+
+    def __init__(self, nome: str, telemovel: str, ultimo_envio: str = "", ativo: bool = True, selecionado: bool = True):
+        # Atribui valores primeiro
+        self.nome = nome
+        self.telemovel = self.normalize_phone(telemovel)
+        self.ultimo_envio = ultimo_envio
+        self.ativo = ativo
+        self.selecionado = selecionado
+        
+        # Define se é válido baseado na validação do telefone
+        self.is_valid = self.validate_phone(self.telemovel)
+
     @staticmethod
-    def _normalize_phone(phone: str) -> str:
+    def normalize_phone(phone: str, prefix: str = "+351") -> str:
         if not phone:
             return ""
         
         # Remove tudo exceto dígitos
         digits = re.sub(r'\D', '', str(phone))
-        
-        # Remove prefixo +351 se presente
-        if digits.startswith('351') and len(digits) > 9:
-            digits = digits[3:]
-        
-        # Valida se tem pelo menos 9 dígitos
+
         if len(digits) < 9:
             return ""
         
-        # Pega os últimos 9 dígitos (caso tenha mais)
-        digits = digits[-9:]
+        remaining_prefix_digits = digits[:-9]  # Dígitos antes dos últimos 9 (prefixo)
+        valid_9_digits = digits[-9:]  # Últimos 9 dígitos (número)
         
-        # Formata como 'XXX XXX XXX'
-        return f"{digits[0:3]} {digits[3:6]} {digits[6:9]}"
-    
+        # Determina qual prefixo usar
+        if remaining_prefix_digits:  # Se há prefixo nos dígitos
+            # Usa o prefixo que veio no input (ex: +22 para Moçambique)
+            used_prefix = f"+{remaining_prefix_digits}"
+        else:
+            # Sem prefixo, usa o padrão (+351 para Portugal)
+            used_prefix = prefix
+        
+        # Formata como '+prefixo XXX XXX XXX'
+        return f"{used_prefix} {valid_9_digits[0:3]} {valid_9_digits[3:6]} {valid_9_digits[6:9]}"
+
     @staticmethod
-    def _validate_phone(phone: str) -> bool:
+    def validate_phone(phone: str) -> bool:
         if not phone:
             return False
-        
+
         # Conta apenas dígitos
         digits = re.sub(r'\D', '', str(phone))
-        return len(digits) >= 9
+
+        # Deve ter no mínimo 9 e no máximo 12 dígitos (9 + 3 para prefixo)
+        return 9 <= len(digits) <= 12
     
     def verificar_enviar_boas_vindas(self, ignore_selection: bool = False) -> bool:
         selection_check = True if ignore_selection else self.selecionado
         return (
             self.ativo and 
             selection_check and 
-            self.is_valid and
             (not self.ultimo_envio or self.ultimo_envio.strip() == "")
         )
     
     def verificar_enviar_mensagem_geral(self, ignore_selection: bool = False) -> bool:
         selection_check = True if ignore_selection else self.selecionado
+
         return (
             self.ativo and 
-            selection_check and 
-            self.is_valid
+            selection_check
         )
     
     def pode_receber_mensagem(self) -> tuple[bool, str]:
-        if not self.is_valid:
-            return False, "Número inválido"
         if not self.ativo:
             return False, "Contacto inativo"
         if not self.selecionado:
@@ -103,34 +108,27 @@ class Contact:
         
         return {
             "success": True,
-            "telefone": self.telemovel_normalizado,
+            "telefone": self.telemovel,
             "nome": self.nome,
             "tipo": tipo,
             "contact": self
         }
     
     def editar(self, chave: str, valor) -> bool:
-        if self._deleted:
-            return False
-        
         if not hasattr(self, chave) or chave.startswith('_'):
             return False
-        
         # Validações especiais
         if chave == "telemovel":
-            setattr(self, chave, valor)
-            self.telemovel_normalizado = self._normalize_phone(valor)
-            self.is_valid = self._validate_phone(self.telemovel_normalizado)
+            # Normaliza o telefone
+            normalized = self.normalize_phone(valor)
+            if not normalized:
+                return False
+            setattr(self, chave, normalized)
+            self.is_valid = self.validate_phone(self.telemovel)
         elif chave in ("ativo", "selecionado"):
             setattr(self, chave, bool(valor))
         else:
             setattr(self, chave, valor)
-        
-        return True
-    
-    def eliminar(self) -> bool:
-        self._deleted = True
-        self.ativo = False
         return True
     
     def registar_envio(self, status: SendStatus):
@@ -149,7 +147,6 @@ class Contact:
         return {
             "nome": self.nome,
             "telemovel": self.telemovel,
-            "telemovel_normalizado": self.telemovel_normalizado,
             "ultimo_envio": self.ultimo_envio,
             "ativo": self.ativo,
             "selecionado": self.selecionado,
@@ -157,12 +154,10 @@ class Contact:
     
     @classmethod
     def from_dict(cls, data: dict) -> 'Contact':
-        # Suporta ambos 'telemovel' e 'contacto_original' para compatibilidade
-        telemovel = data.get("telemovel", data.get("contacto_original", ""))
+        telemovel = data.get("telemovel", "")
         return cls(
             nome=data.get("nome", ""),
             telemovel=telemovel,
-            telemovel_normalizado=data.get("telemovel_normalizado", data.get("contacto_normalizado", "")),
             ultimo_envio=data.get("ultimo_envio", ""),
             ativo=data.get("ativo", True),
             selecionado=data.get("selecionado", True),

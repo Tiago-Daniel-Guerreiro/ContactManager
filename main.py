@@ -1,97 +1,69 @@
 import sys
-import os
-from pathlib import Path
-from utils import get_base_dir
-
-# Adiciona diretório raiz ao path para imports
-ROOT_DIR = get_base_dir() 
-sys.path.insert(0, str(ROOT_DIR))
-
-# Configuração de encoding para Windows
-if sys.platform == 'win32':
-    try:
-        # Reconfigure encoding para UTF-8 se disponível
-        if hasattr(sys.stdout, 'reconfigure'):
-            sys.stdout.reconfigure(encoding='utf-8')  # type: ignore
-        if hasattr(sys.stderr, 'reconfigure'):
-            sys.stderr.reconfigure(encoding='utf-8')  # type: ignore
-    except Exception:
-        pass  # Ignora erros de reconfiguração
-
-def setup_environment():
-    # Cria diretórios necessários se não existirem
-    dirs_to_create = [
-        ROOT_DIR / "data",
-        ROOT_DIR / "config",
-        ROOT_DIR / "reports",
-    ]
-    
-    for dir_path in dirs_to_create:
-        try:
-            dir_path.mkdir(parents=True, exist_ok=True)
-        except Exception:
-            pass
-
-    # Configura variáveis de ambiente para CustomTkinter
-    os.environ["CTK_SILENCE_DEPRECATION_WARNINGS"] = "1"
-
-def set_app_user_model_id():
-    if sys.platform == 'win32':
-        try:
-            import ctypes
-            # Define um ID único para a aplicação
-            # Isso faz o Windows reconhecer a app como diferente do Python
-            myappid = 'TiagoGuerreiro.ContactManager.WhatsAppSMS.7.0.2'
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
-            return True
-        except Exception as e:
-            print(f"Erro ao definir AppUserModelID: {e}")
-            return False
-    return False
+import time
+from utils.debug import get_debug_manager
 
 def main():
-    # Verificações iniciais
-    setup_environment()
+    # Inicializa DebugManager (detecta --debug automaticamente)
+    debug_mgr = get_debug_manager()
     
-    # Modo debug: mostra console com informações detalhadas
-    debug_mode = "--debug" in sys.argv
-    if debug_mode:
-        print("Modo debug")
-        print(f"Python: {sys.version}")
-        print(f"Executável: {sys.executable}")
-        print(f"Frozen: {getattr(sys, 'frozen', False)}")
-        if getattr(sys, 'frozen', False):
-            print(f"_MEIPASS: {getattr(sys, '_MEIPASS', 'N/A')}")
-        print(f"Diretório atual: {os.getcwd()}")
-        print(f"ROOT_DIR: {ROOT_DIR}")
+    # Configura todo o ambiente (encoding, diretórios, console, AppUserModelID)
+    debug_mgr.setup_debug_environment()
     
-    # Fix para ícone na barra de tarefas do Windows
-    if sys.platform == 'win32':
-        try:
-            result = set_app_user_model_id()
-            if debug_mode:
-                print(f"AppUserModelID definido: {result}")
-        except Exception as e:
-            if debug_mode:
-                print(f"Erro ao definir AppUserModelID: {e}")
+    # Adiciona diretório raiz ao path para imports
+    sys.path.insert(0, str(debug_mgr.root_dir))
     
-    # Import após verificações
+    # Loga informações do ambiente (apenas se debug_mode ativo)
+    debug_mgr.log_environment_info("Main")
+    
+    # Import após configuração do ambiente
     from views.windows.main_window import MainWindow
+    from views.windows.disclaimer_window import show_disclaimer_blocking
+    from controllers.services.config_service import ConfigService
     from config.settings import ThemeManager
+    from utils.logger import get_logger, set_log_callback
+    
+    logger = get_logger()
     
     # Inicializa tema global
     ThemeManager()
     
     # Cria e executa aplicação
     try:
-        app = MainWindow()
+        config_path = debug_mgr.root_dir / "config" / "user_config.json"
+        config_service = ConfigService(config_path)
+        
+        if not config_service.get("disclaimer_accepted", False):
+            # Cria app visível (não withdraw)
+            app = MainWindow()
+            
+            # Configura callback do logger ANTES de mostrar disclaimer
+            set_log_callback(app._log)
+            
+            # Mostra disclaimer (parent=app para poder minimizar)
+            accepted = show_disclaimer_blocking(parent=app)
+            
+            if not accepted:
+                logger.info("Aplicação encerrada: disclaimer não aceito", "Main")
+                sys.exit(0)
+            
+            # Salva aceitação
+            config_service.set("disclaimer_accepted", True)
+            
+            # Traz app para primeiro plano se necessário
+            app.after(100, lambda: app.lift())
+            app.after(150, lambda: app.focus_force())
+        else:
+            # Disclaimer já aceito, mostra app normalmente
+            app = MainWindow()
+            
+            # Configura callback do logger
+            set_log_callback(app._log)
+        
         app.mainloop()
     except KeyboardInterrupt:
-        print("\nAplicação encerrada pelo utilizador")
+        logger.info("Aplicação encerrada pelo utilizador", "Main")
     except Exception as e:
-        print(f"Erro fatal: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Erro fatal: {e}", "Main", error=e)
         sys.exit(1)
 
 def run_with_profiling():
@@ -109,26 +81,8 @@ def run_with_profiling():
     stats.print_stats(20)
 
 if __name__ == "__main__":
-    # Verifica argumentos de linha de comando
     if "--profile" in sys.argv:
         run_with_profiling()
         exit(0)
-        
-    if "--debug" in sys.argv:
-        # Modo debug - força console mesmo se for .exe
-        if sys.platform == 'win32' and getattr(sys, 'frozen', False):
-            # Se for .exe, tenta abrir um console
-            try:
-                import ctypes
-                kernel32 = ctypes.windll.kernel32
-                # Aloca um novo console
-                if kernel32.AllocConsole():
-                    # Redireciona stdout e stderr para o console
-                    sys.stdout = open('CONOUT$', 'w')
-                    sys.stderr = open('CONOUT$', 'w')
-                    print("\nConsole de Debug")
-                    print("Feche esta janela para encerrar a aplicação\n")
-            except Exception as e:
-                print(f"Erro ao alocar console: {e}")
 
     main()

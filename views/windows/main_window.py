@@ -2,7 +2,7 @@ import customtkinter as ctk
 from typing import Optional, List
 from pathlib import Path
 from datetime import datetime
-
+from views.windows.disclaimer_window import DisclaimerWindow
 from views.base.base_window import BaseMainWindow
 from views.windows.contact_editor_window import ContactEditorWindow
 from views.windows.preview_window import PreviewDashboardWindow
@@ -14,45 +14,49 @@ from controllers.services.data_handler import DataHandler
 from controllers.services.contact_service import ContactService
 from controllers.services.config_service import ConfigService
 from controllers.services.message_service import MessageService
-from utils.get_patch import get_base_dir
+from utils.environment import get_base_dir
 
 class MainWindow(BaseMainWindow):    
     def __init__(self):
         self.theme = ThemeManager()
-        
-        # Controllers e Services
         self.controller = ContactController()
-        self.data_handler = DataHandler()
-        self.controller.set_data_handler(self.data_handler)
-        
-        # Serviços especializados
-        self.service = ContactService(self.data_handler)
+        self.service = ContactService()
+        self.data_handler = DataHandler(contact_service=self.service)
+        self.controller.set_contact_service(self.service)
         self.config_service = ConfigService.create_default_config(get_base_dir())
         self.message_service = MessageService()
-        
-        # Injeta serviços no controller
         self.controller.set_message_service(self.message_service)
-        
-        # Estado da aplicação
         self.is_sending = False
         self.selected_contacts: List[Contact] = []
-        
-        # Configura callbacks
         self.controller.set_callbacks(
             on_contacts_changed=self._on_contacts_changed,
             on_send_progress=self._on_send_progress,
             on_send_complete=self._on_send_complete,
             on_log=self._log
         )
-        
         super().__init__(
             title=self.theme.settings.app_name,
             size=self.theme.settings.main_window_size,
             min_size=self.theme.settings.min_window_size
         )
+        self._add_context_menu_to_textboxes()
+
+    def _add_context_menu_to_textboxes(self):
+        import tkinter as tk
+        def add_menu(widget):
+            menu = tk.Menu(widget, tearoff=0)
+            menu.add_command(label="Copiar", command=lambda: widget.event_generate('<<Copy>>'))
+            menu.add_command(label="Colar", command=lambda: widget.event_generate('<<Paste>>'))
+            menu.add_command(label="Cortar", command=lambda: widget.event_generate('<<Cut>>'))
+            def show_menu(event):
+                menu.tk_popup(event.x_root, event.y_root)
+            widget.bind("<Button-3>", show_menu)
+        if hasattr(self, 'message_text'):
+            add_menu(self.message_text)
+        if hasattr(self, 'welcome_text'):
+            add_menu(self.welcome_text)
 
     def _build_ui(self):
-        # Container principal com scroll
         self.main_container = ctk.CTkScrollableFrame(self)
         self.main_container.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
         self.main_container.grid_columnconfigure(0, weight=1)
@@ -79,12 +83,29 @@ class MainWindow(BaseMainWindow):
             font=("Segoe UI", 24, "bold")
         ).grid(row=0, column=0, sticky="w")
         
+        version_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        version_frame.grid(row=0, column=1, sticky="e")
+        
         ctk.CTkLabel(
-            frame,
+            version_frame,
             text=f"v{self.theme.settings.version}",
             text_color="gray",
             font=("Segoe UI", 11)
-        ).grid(row=0, column=1, sticky="e")
+        ).pack(side="left", padx=(0, 10))
+        
+        ctk.CTkButton(
+            version_frame,
+            text="Aviso Legal",
+            width=100,
+            height=28,
+            font=("Segoe UI", 10),
+            text_color=self.theme.get_text(),
+            fg_color="transparent",
+            border_width=2,
+            border_color=self.theme.get_primary(),
+            hover_color=self.theme.get_surface(),
+            command=self._open_disclaimer_secondary
+        ).pack(side="left")
         
         return row + 1
     
@@ -392,16 +413,13 @@ class MainWindow(BaseMainWindow):
             return
         
         self._log(f"Carregando JSON: {filepath}")
-        success, msg, warnings = self.service.load_json(filepath, merge=bool(self.service.contacts))
-        
-        self._log(msg)
-        if warnings:
-            for w in warnings[:3]:
-                self._log(f"  {w}")
+        success = self.data_handler.load_json(filepath)
         
         if success:
-            self.controller._contacts = self.service.contacts
+            self._log(f"Contactos carregados: {len(self.service.contacts)}")
             self._on_contacts_changed(self.service.contacts)
+        else:
+            self._log("Erro ao carregar JSON")
     
     def _select_and_import_json(self):
         from tkinter import filedialog, messagebox
@@ -453,21 +471,15 @@ class MainWindow(BaseMainWindow):
         
         # Importa com merge automático
         self._log(f"Importando contactos de: {filepath}")
-        success, msg, warnings = self.service.load_json(filepath, merge=True)
-        
-        self._log(msg)
-        if warnings:
-            for w in warnings[:3]:
-                self._log(f"  {w}")
+        success = self.data_handler.load_json(filepath)
         
         if success:
-            self.controller._contacts = self.service.contacts
             self._on_contacts_changed(self.service.contacts)
             # Limpa o campo após sucesso
             self.json_entry.delete(0, "end")
             self._log(f"{len(self.service.contacts)} contactos carregados")
         else:
-            self._log(f"Erro ao importar: {msg}")
+            self._log(f"Erro ao importar: {filepath}")
 
     def _load_excel(self):
         url = self.excel_entry.get().strip()
@@ -483,7 +495,7 @@ class MainWindow(BaseMainWindow):
             return
         
         self._log(f"Carregando Google Sheets: {url}")
-        success, msg, warnings = self.service.load_excel(url, merge=bool(self.service.contacts))
+        success, msg, warnings = self.data_handler.load_excel_online(url)
         
         self._log(msg)
         if warnings:
@@ -491,14 +503,12 @@ class MainWindow(BaseMainWindow):
                 self._log(f"  {w}")
         
         if success:
-            self.controller._contacts = self.service.contacts
             self._on_contacts_changed(self.service.contacts)
     
     def _open_editor(self):
         try:
             def on_save(contacts):
                 self.service.contacts = contacts
-                self.controller._contacts = contacts
                 self._on_contacts_changed(contacts)
             
             self._editor_window = ContactEditorWindow(
@@ -512,7 +522,8 @@ class MainWindow(BaseMainWindow):
     
     def _show_preview(self):
         if not self.service.contacts:
-            self._log("Carregue contactos primeiro")
+            from tkinter import messagebox
+            messagebox.showerror("Erro", "Carregue contactos primeiro")
             return
         
         try:
@@ -536,7 +547,8 @@ class MainWindow(BaseMainWindow):
     
     def _initialize(self):
         if not self.service.contacts:
-            self._log("Carregue contactos primeiro")
+            from tkinter import messagebox
+            messagebox.showerror("Erro", "Carregue contactos primeiro")
             return
 
         method = self.method_var.get()
@@ -544,13 +556,13 @@ class MainWindow(BaseMainWindow):
         # Usa o controller para inicializar
         if method == "sms":
             # SMS precisa da janela de inicialização
-            from controllers.services.sms_sender import SMSSender
+            from controllers.services.sms_sender import SMS_Sender
             from views.windows.sms_init_window import SMSInitializationWindow
 
             try:
                 # Cria sender se não existir
-                if not isinstance(self.controller._sender, SMSSender):
-                    sender = SMSSender()
+                if not isinstance(self.controller._sender, SMS_Sender):
+                    sender = SMS_Sender()
                     self.controller.set_sender(sender)
 
                 def on_sms_ready():
@@ -565,12 +577,13 @@ class MainWindow(BaseMainWindow):
                 self._log(f"Erro ao inicializar SMS: {e}")
         else:
             # WhatsApp usa o controller (aguarda login automaticamente)
-            self.controller.initialize_sender(method, on_complete=None)
+            self.controller.initialize_sender(method)
 
     def _start_sending(self):
         # Validações
         if not self.service.contacts:
-            self._log("Carregue contactos primeiro")
+            from tkinter import messagebox
+            messagebox.showerror("Erro", "Carregue contactos primeiro")
             return
         
         message_template = self.message_text.get("1.0", "end-1c").strip()
@@ -639,11 +652,20 @@ class MainWindow(BaseMainWindow):
             text=f"Concluído: {sent} enviados, {failed} falhados"
         ))
         
-    def _log(self, msg: str):
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        self.log_text.insert("end", f"[{timestamp}] {msg}\n")
+    def _log(self, msg: str, error=None):
+        self.log_text.insert("end", f"{msg}\n")
         self.log_text.see("end")
-        print(f"[{timestamp}] {msg}")
+    
+    def _open_disclaimer_secondary(self):        
+        try:
+            _ = DisclaimerWindow(
+                parent=self,
+                on_accept=None,
+                on_decline=None,
+                can_close=True
+            )
+        except Exception as e:
+            self._log(f"Erro ao abrir Aviso Legal: {e}")
     
     def _update_contacts_label(self):
         stats = self.service.get_stats()
@@ -655,7 +677,7 @@ class MainWindow(BaseMainWindow):
         try:
             default_file = get_base_dir() / "data" / "contactos.json"
             default_file.parent.mkdir(parents=True, exist_ok=True)
-            success, msg = self.service.save_json(str(default_file))
+            success = self.service.save_json(str(default_file))
             if success:
                 self._log("Auto-salvo")
         except Exception as e:
@@ -711,14 +733,13 @@ class MainWindow(BaseMainWindow):
             default_file = get_base_dir() / "data" / "contactos.json"
             
             if default_file.exists():
-                success, msg, warnings = self.service.load_json(str(default_file), merge=False)
+                success = self.data_handler.load_json(str(default_file))
                 
                 if success:
-                    self.controller._contacts = self.service.contacts
                     self._update_contacts_label()
                     self._log(f"Contactos carregados: {len(self.service.contacts)}")
                 else:
-                    self._log(f"Erro ao carregar contactos: {msg}")
+                    self._log(f"Erro ao carregar contactos")
             else:
                 # Oferece ao utilizador selecionar um ficheiro
                 self._log("Nenhum contacto carregado")

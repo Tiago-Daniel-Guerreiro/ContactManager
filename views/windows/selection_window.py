@@ -19,7 +19,7 @@ class ContactSelectionWindow(BaseListWindow):
         columns = [
             {"title": "", "key": "_select", "weight": 0, "width": 40, "type": "checkbox"},
             {"title": "Nome", "key": "nome", "weight": 1, "min_width": 200},
-            {"title": "Telemóvel", "key": "telemovel_normalizado", "weight": 0, "width": 150}
+            {"title": "Telemóvel", "key": "telemovel", "weight": 0, "width": 150}
         ]
         
         super().__init__(

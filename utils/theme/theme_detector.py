@@ -1,6 +1,8 @@
 import sys
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Optional, Callable
+from utils.environment import get_base_dir, is_frozen
+from utils.logger import get_logger
 
 ThemeType = Literal["light", "dark"]
 
@@ -35,50 +37,24 @@ def get_windows_theme() -> ThemeType:
             # Chave não existe, assume tema claro
             return "light"
         except Exception as e:
-            print(f"Erro ao ler registro: {e}")
+            get_logger().error(f"Erro ao ler registro do tema", error=e)
             return "light"
             
     except ImportError:
         # winreg não disponível
         return "light"
 
-def get_icon_path(base_dir: Path | None = None, theme: ThemeType | None = None) -> Path:
+def get_icon_path(base_dir: Path | None = None) -> Path:
     # Detecta base_dir se não fornecido
     if base_dir is None:
-        if getattr(sys, 'frozen', False):
-            # Rodando como executável PyInstaller
-            base_dir = Path(sys.executable).parent
-        else:
-            # Rodando como script Python normal
-            # Este arquivo está em utils/theme/, então precisamos subir 2 níveis
-            base_dir = Path(__file__).parent.parent.parent
-    
-    # Detecta tema se não fornecido
-    if theme is None:
-        theme = get_windows_theme()
-    
+        base_dir = get_base_dir()
+
     # Seleciona o ícone apropriado
     if sys.platform == 'win32':
-        # No Windows, usa ICO
-        if theme == "dark":
-            icon_name = "icon_dark.ico"
-        else:
-            icon_name = "icon_light.ico"
+        icon_name = "icon.ico"
     else:
-        # Em outras plataformas, usa PNG
-        if theme == "dark":
-            icon_name = "icon_dark.png"
-        else:
-            icon_name = "icon_light.png"
-    
+        icon_name = "icon.png"
+
     icon_path = base_dir / icon_name
-    
-    # Fallback para ícone padrão se o específico não existir
-    if not icon_path.exists():
-        fallback_ext = ".ico" if sys.platform == 'win32' else ".png"
-        fallback_path = base_dir / f"icon{fallback_ext}"
-        
-        if fallback_path.exists():
-            return fallback_path
-    
+
     return icon_path

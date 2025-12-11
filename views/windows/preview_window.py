@@ -30,7 +30,7 @@ class PreviewDashboardWindow(BaseListWindow):
         # Define colunas baseado no modo
         columns = [
             {"title": "Nome", "key": "nome", "weight": 1, "min_width": 200},
-            {"title": "Telemóvel", "key": "telemovel_normalizado", "weight": 0, "width": 150},
+            {"title": "Telemóvel", "key": "telemovel", "weight": 0, "width": 150},
         ]
         
         # Só mostra coluna "Selecionado" se NÃO estiver em modo "Enviar para Todos"

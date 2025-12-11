@@ -1,795 +1,414 @@
-import subprocess
-import time
-import threading
 import re
-import os
-import zipfile
-import urllib.request
-import platform
-from typing import Optional, Callable, Tuple, List
-from dataclasses import dataclass
+import time
+from typing import Optional, Callable, List, Generator
 from datetime import datetime
+from dataclasses import dataclass
+
+from utils.logger import get_logger
+from models.contact import Contact
+from models.Result import Result, statusType, messageType
+from controllers.services.ADB_Manager import ADB_Manager, DeviceInfo
+
+SOURCE = "SMS_Sender"
 
 @dataclass
-class SMSResult:
-    success: bool
-    message: str
-    phone_sent_to: str
-    timestamp: str
+class SMSMessage:
+    address: str
+    address_normalized: str
+    body: str
+    msg_type: str  # 'sent', 'received', 'unknown'
+    timestamp: Optional[datetime] = None
+    raw_date: Optional[int] = None
 
-@dataclass
-class DeviceInfo:
-    device_id: str
-    model: str
-    status: str
-    connected_at: datetime
-
-def get_adb_download_url() -> Tuple[str, str]:
-    system = platform.system()
-
-    match system:
-        case "Windows":
-            return (
-                "https://dl.google.com/android/repository/platform-tools-latest-windows.zip",
-                "platform-tools-windows.zip"
-            )
-        case "Darwin":  # macOS
-            return (
-                "https://dl.google.com/android/repository/platform-tools-latest-darwin.zip",
-                "platform-tools-darwin.zip"
-            )
-        case "Linux":
-            return (
-                "https://dl.google.com/android/repository/platform-tools-latest-linux.zip",
-                "platform-tools-linux.zip"
-            )
-        case _:
-            raise Exception(f"Sistema operacional não suportado: {system}")
-
-def download_adb(
-    destination_folder: str,
-    progress_callback: Optional[Callable[[int, int], None]] = None
-) -> Tuple[bool, str, str]:
-    try:
-        # Cria pasta se não existir
-        os.makedirs(destination_folder, exist_ok=True)
+class SMS_Sender:    
+    def __init__(self):
+        self.adb_manager = ADB_Manager()
+        self.logger = get_logger()
         
-        # Obtém URL de download
-        url, filename = get_adb_download_url()
-        zip_path = os.path.join(destination_folder, filename)
-        
-        # Download com progresso
-        def report_progress(block_num, block_size, total_size):
-            if progress_callback:
-                downloaded = block_num * block_size
-                progress_callback(downloaded, total_size)
-        
-        urllib.request.urlretrieve(url, zip_path, reporthook=report_progress)
-        
-        # Extrai ZIP
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(destination_folder)
-        
-        # Remove ZIP
-        os.remove(zip_path)
-        
-        # Determina caminho do ADB
-        platform_tools_folder = os.path.join(destination_folder, "platform-tools")
-        
-        if platform.system() == "Windows":
-            adb_path = os.path.join(platform_tools_folder, "adb.exe")
-        else:
-            adb_path = os.path.join(platform_tools_folder, "adb")
-            # Torna executável no Linux/macOS
-            os.chmod(adb_path, 0o755)
-        
-        # Verifica se funciona
-        try:
-            result = subprocess.run(
-                [adb_path, "version"],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            if result.returncode == 0:
-                return True, "ADB instalado com sucesso!", adb_path
-            else:
-                return False, "Erro ao verificar instalação do ADB", ""
-        except Exception as e:
-            return False, f"Erro ao verificar ADB: {e}", ""
-            
-    except Exception as e:
-        return False, f"Erro ao instalar ADB: {e}", ""
-
-class SMSSender:    
-    def __init__(self, log_callback: Optional[Callable] = None):
-        self.adb_path = "adb"
-        self.device_connected = False
-        self.device_id: Optional[str] = None
-        self.device_info: Optional[DeviceInfo] = None
-        self._monitoring = False
-        self._monitor_thread: Optional[threading.Thread] = None
-        self._log_callback = log_callback
-        self._on_device_connected: Optional[Callable] = None
-        self._on_device_disconnected: Optional[Callable] = None
-        self._last_known_devices: set = set()
+    @property
+    def device_connected(self) -> bool:
+        return self.adb_manager.device_connected
     
-    def _log(self, message: str):
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        formatted = f"[{timestamp}] {message}"
-        print(formatted)
-        if self._log_callback:
-            self._log_callback(formatted)
+    @property
+    def device_info(self) -> Optional[DeviceInfo]:
+        return self.adb_manager.device_info
     
-    def set_log_callback(self, callback: Callable):
-        self._log_callback = callback
-    
+    @property
+    def device_id(self) -> Optional[str]:
+        return self.adb_manager.device_id
+        
     def set_device_callbacks(
         self, 
-        on_connected: Optional[Callable] = None,
-        on_disconnected: Optional[Callable] = None
+        on_connected: Optional[Callable[[DeviceInfo], None]] = None,
+        on_disconnected: Optional[Callable[[Optional[DeviceInfo]], None]] = None
     ):
-        self._on_device_connected = on_connected
-        self._on_device_disconnected = on_disconnected
+        self.adb_manager.set_device_callbacks(on_connected, on_disconnected)
 
-    def _normalize_phone(self, phone: str) -> str:
-        try:
-            return "".join(filter(str.isdigit, str(phone)))[-9:]
-        except:
-            return ""
-    
-    def find_adb(self) -> Tuple[bool, str]:
-        # Caminho onde o programa instala o ADB
-        installed_adb_folder = os.path.join(os.path.expanduser("~"), ".android_tools", "platform-tools")
-        installed_adb_windows = os.path.join(installed_adb_folder, "adb.exe")
-        installed_adb_unix = os.path.join(installed_adb_folder, "adb")
-        
-        paths = [
-            # Primeiro verifica o caminho onde o programa instalou
-            installed_adb_windows if platform.system() == "Windows" else installed_adb_unix,
-            # Depois verifica caminhos comuns
-            "adb",
-            r"C:\platform-tools\adb.exe",
-            os.path.expanduser(r"~\AppData\Local\Android\Sdk\platform-tools\adb.exe"),
-            os.path.expanduser(r"~\.android_tools\platform-tools\adb.exe"),
-            "/usr/bin/adb",
-            "/usr/local/bin/adb",
-        ]
-        
-        for path in paths:
-            try:
-                result = subprocess.run(
-                    [path, "version"], 
-                    capture_output=True, 
-                    text=True, 
-                    timeout=5
-                )
-                if result.returncode == 0:
-                    self.adb_path = path
-                    version_line = result.stdout.split('\n')[0]
-                    self._log(f"ADB encontrado: {path}")
-                    self._log(f"   {version_line}")
-                    return True, f"ADB: {path}"
-            except FileNotFoundError:
-                continue
-            except Exception:
-                continue
-        
-        self._log("ADB não encontrado no sistema")
-        return False, "ADB não encontrado"
-    
-    def _get_connected_devices(self) -> List[Tuple[str, str]]:
-        try:
-            # Verifica se o adb_path é válido antes de executar
-            if not self.adb_path:
-                return []
-            
-            # Verifica se o arquivo existe (exceto se for apenas "adb" no PATH)
-            if self.adb_path != "adb" and not os.path.exists(self.adb_path):
-                return []
-            
-            result = subprocess.run(
-                [self.adb_path, "devices"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0
-            )
-            
-            if result.returncode != 0:
-                return []
-            
-            devices = []
-            lines = result.stdout.strip().split('\n')[1:]  # Skip header
-            
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-                
-                parts = line.split('\t')
-                if len(parts) >= 2:
-                    device_id = parts[0]
-                    status = parts[1]
-                    devices.append((device_id, status))
-            
-            return devices
-            
-        except subprocess.TimeoutExpired:
-            # Silencioso - não exibe log para timeout
-            return []
-        except FileNotFoundError:
-            # Silencioso - ADB não encontrado
-            return []
-        except Exception as e:
-            # Silencioso para outros erros - ADB provavelmente não está configurado
-            return []
-    
-    def _get_device_model(self, device_id: str) -> str:
-        try:
-            result = subprocess.run(
-                [self.adb_path, "-s", device_id, "shell", "getprop", "ro.product.model"],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            return result.stdout.strip() if result.returncode == 0 else "Dispositivo Android"
-        except:
-            return "Dispositivo Android"
-    
-    def _get_device_brand(self, device_id: str) -> str:
-        try:
-            result = subprocess.run(
-                [self.adb_path, "-s", device_id, "shell", "getprop", "ro.product.brand"],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            return result.stdout.strip() if result.returncode == 0 else ""
-        except:
-            return ""
-    
-    def _get_android_version(self, device_id: str) -> str:
-        try:
-            result = subprocess.run(
-                [self.adb_path, "-s", device_id, "shell", "getprop", "ro.build.version.release"],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            return result.stdout.strip() if result.returncode == 0 else ""
-        except:
-            return ""
-    
-    def check_device(self, log_callback: Optional[Callable] = None) -> Tuple[bool, str]:        
-        # Usa callback passado ou o interno
-        log_fn = log_callback or self._log
-        
-        devices = self._get_connected_devices()
-        
-        # Filtra dispositivos autorizados
-        authorized = [(d, s) for d, s in devices if s == 'device']
-        unauthorized = [(d, s) for d, s in devices if s == 'unauthorized']
-        
-        if authorized:
-            device_id, status = authorized[0]
-            self.device_id = device_id
-            self.device_connected = True
-            
-            # Obtém informações detalhadas
-            model = self._get_device_model(device_id)
-            brand = self._get_device_brand(device_id)
-            android_version = self._get_android_version(device_id)
-            
-            full_name = f"{brand} {model}".strip() if brand else model
-            
-            self.device_info = DeviceInfo(
-                device_id=device_id,
-                model=full_name,
-                status=status,
-                connected_at=datetime.now()
-            )
-            
-            log_fn(f"Dispositivo Android conectado!")
-            log_fn(f"   Modelo: {full_name}")
-            log_fn(f"   Android: {android_version}")
-            log_fn(f"   ID: {device_id}")
-            
-            return True, f"{full_name} ({device_id})"
-        
-        if unauthorized:
-            device_id = unauthorized[0][0]
-            log_fn(f"Dispositivo encontrado mas não autorizado: {device_id}")
-            log_fn(f"   Aceite a conexão USB no telemóvel")
-            return False, "Aceite a conexão USB no telemóvel"
-        
-        log_fn("Nenhum dispositivo Android encontrado")
-        log_fn("   Verifique:")
-        log_fn("   - Cabo USB conectado")
-        log_fn("   - Depuração USB ativada")
-        self.device_connected = False
-        self.device_id = None
-        self.device_info = None
-        
-        return False, "Nenhum dispositivo encontrado"
-    
+    def find_adb(self) -> bool:
+        return self.adb_manager.find_adb()
+
+    def check_device(self) -> bool:
+        return self.adb_manager.check_device()
+
     def start_device_monitoring(self, interval: float = 2.0):
-        if self._monitoring:
-            self._log("Monitoramento já está ativo")
-            return
-        
-        self._monitoring = True
-        self._log("Iniciando monitoramento de dispositivos...")
-        
-        def monitor_loop():
-            while self._monitoring:
-                try:
-                    devices = self._get_connected_devices()
-                    current_device_ids = {d for d, s in devices if s == 'device'}
-                    
-                    # Detecta novos dispositivos
-                    new_devices = current_device_ids - self._last_known_devices
-                    for device_id in new_devices:
-                        self._handle_device_connected(device_id)
-                    
-                    # Detecta dispositivos removidos
-                    removed_devices = self._last_known_devices - current_device_ids
-                    for device_id in removed_devices:
-                        self._handle_device_disconnected(device_id)
-                    
-                    # Verifica dispositivos não autorizados
-                    unauthorized = [d for d, s in devices if s == 'unauthorized']
-                    for device_id in unauthorized:
-                        if device_id not in self._last_known_devices:
-                            self._log(f"Dispositivo detectado: {device_id}")
-                            self._log(f"   Por favor, aceite a conexão USB no telemóvel")
-                    
-                    self._last_known_devices = current_device_ids
-                    
-                except Exception as e:
-                    self._log(f"Erro no monitoramento: {e}")
-                
-                time.sleep(interval)
-        
-        self._monitor_thread = threading.Thread(target=monitor_loop, daemon=True)
-        self._monitor_thread.start()
-        
-        # Faz uma verificação inicial
-        self.check_device()
-    
-    def _handle_device_connected(self, device_id: str):
-        model = self._get_device_model(device_id)
-        brand = self._get_device_brand(device_id)
-        android_version = self._get_android_version(device_id)
-        
-        full_name = f"{brand} {model}".strip() if brand else model
-        
-        self._log("Dispositivo Android conectado!")
-        self._log(f"   Modelo: {full_name}")
-        self._log(f"   Android: {android_version}")
-        self._log(f"   ID: {device_id}")
-        
-        self.device_id = device_id
-        self.device_connected = True
-        self.device_info = DeviceInfo(
-            device_id=device_id,
-            model=full_name,
-            status='device',
-            connected_at=datetime.now()
-        )
-        
-        if self._on_device_connected:
-            self._on_device_connected(self.device_info)
-    
-    def _handle_device_disconnected(self, device_id: str):
-        self._log(f"O dispositivo foi desconectado: {device_id}")
-        
-        if self.device_id == device_id:
-            self.device_id = None
-            self.device_connected = False
-            old_info = self.device_info
-            self.device_info = None
-            
-            if self._on_device_disconnected:
-                self._on_device_disconnected(old_info)
-    
+        self.adb_manager.start_device_monitoring(interval)
+
     def stop_device_monitoring(self):
-        if self._monitoring:
-            self._log("Parando monitoramento de dispositivos...")
-            self._monitoring = False
-            if self._monitor_thread:
-                self._monitor_thread.join(timeout=5)
-                self._monitor_thread = None
-    
+        self.adb_manager.stop_device_monitoring()
+
     def wait_for_device(self, timeout: int = 60) -> bool:
-        self._log(f"Aguardando dispositivo Android (timeout: {timeout}s)...")
-        self._log("   Conecte o telemóvel via USB e ative Depuração USB")
-        
-        start_time = time.time()
-        check_count = 0
-        
-        while time.time() - start_time < timeout:
-            check_count += 1
-            devices = self._get_connected_devices()
-            
-            # Mostra progresso a cada 5 verificações
-            if check_count % 5 == 0:
-                elapsed = int(time.time() - start_time)
-                self._log(f"   Procurando... ({elapsed}s)")
-            
-            # Verifica autorizados
-            authorized = [(d, s) for d, s in devices if s == 'device']
-            if authorized:
-                self._handle_device_connected(authorized[0][0])
-                return True
-            
-            # Verifica não autorizados
-            unauthorized = [(d, s) for d, s in devices if s == 'unauthorized']
-            if unauthorized:
-                self._log(f"   Dispositivo detectado - aceite a conexão USB")
-            
-            time.sleep(2)
-        
-        self._log("Timeout - nenhum dispositivo conectado")
-        return False
-    
-    def _run_adb(self, *args) -> subprocess.CompletedProcess:
-        cmd = [self.adb_path]
-        if self.device_id:
-            cmd.extend(["-s", self.device_id])
-        cmd.extend(args)
-        # errors='ignore' para evitar crash em caracteres estranhos
-        return subprocess.run(
-            cmd, 
-            capture_output=True, 
-            text=True, 
-            timeout=30,
-            encoding='utf-8',
-            errors='ignore'
-        )
+        return self.adb_manager.wait_for_device(timeout)
+
+    def get_device_info_external(self, device_id: str):
+        model, brand, android_version, full_name = self.adb_manager.get_device_full_info(device_id)
+        self.logger.info(f"Dispositivo: {full_name}", source=SOURCE)
+        return model, brand, full_name
     
     def _normalize_phone_for_sms(self, phone: str) -> str:
         return phone.replace(' ', '').replace('-', '')
     
-    def _get_screen_resolution(self) -> Tuple[int, int]:
+    def _get_screen_resolution(self):
         try:
-            result = self._run_adb("shell", "wm", "size")
-            # Output: "Physical size: 1080x2400"
+            result = self.adb_manager.run_adb("shell", "wm", "size")
             if result.returncode == 0:
                 match = re.search(r'(\d+)x(\d+)', result.stdout)
                 if match:
                     width = int(match.group(1))
                     height = int(match.group(2))
+                    self.logger.debug(f"Resolução: {width}x{height}", source=SOURCE)
                     return width, height
-        except:
-            pass
-        return 1080, 2400  # Default comum
-    
-    def check_for_stop_response(self, phone: str, log_callback: Optional[Callable] = None) -> bool:
+        except Exception as e:
+            self.logger.error("Erro ao obter resolução", error=e, source=SOURCE)
+        
+        self.logger.warning("Usando resolução padrão 1080x2400", source=SOURCE)
+        return 1080, 2400
+        
+    def _query_sms(
+        self, 
+        uri: str = "content://sms", 
+        projection: str = "address,body,type,date"
+    ) -> Optional[str]:
         try:
-            target_norm = self._normalize_phone(phone)
-            
-            # Query só mensagens recebidas (inbox) com projection
-            result = self._run_adb(
+            result = self.adb_manager.run_adb(
                 "shell", "content", "query",
-                "--uri", "content://sms/inbox",
-                "--projection", "address,body",
+                "--uri", uri,
+                "--projection", projection,
                 "--sort", "date DESC"
             )
             
             if result.returncode != 0:
-                return False
+                self.logger.warning(
+                    f"Falha na query SMS: {result.stderr}", 
+                    source=SOURCE
+                )
+                return None
+                
+            return result.stdout
             
-            for line in result.stdout.splitlines():
-                if "address=" not in line:
-                    continue
-                
+        except Exception as e:
+            self.logger.error("Erro na query SMS", error=e, source=SOURCE)
+            return None
+    
+    def _parse_sms_line(self, line: str) -> Optional[SMSMessage]:
+        if "address=" not in line:
+            return None
+        
+        try:
+            after_address = line.split("address=")[1]
+            parts = after_address.split(", body=", 1)
+            
+            if len(parts) < 2:
+                return None
+            
+            addr_raw = parts[0].strip()
+            addr_normalized = self._normalize_phone_for_sms(
+                Contact.normalize_phone(addr_raw)
+            )
+            
+            # Extrair body (remover campos seguintes)
+            body_content = parts[1]
+            for delimiter in [", type=", ", date="]:
+                if delimiter in body_content:
+                    body_content = body_content.split(delimiter)[0]
+                    break
+            body_content = body_content.strip()
+            
+            # Extrair tipo
+            msg_type = 'unknown'
+            type_match = re.search(r'type=(\d+)', line)
+            if type_match:
+                type_code = type_match.group(1)
+                msg_type = 'sent' if type_code == '2' else 'received'
+            
+            # Extrair data
+            timestamp = None
+            raw_date = None
+            date_match = re.search(r'date=(\d+)', line)
+            if date_match:
                 try:
-                    # Extrai address e body usando split
-                    after_address = line.split("address=")[1]
-                    parts = after_address.split(", body=", 1)
-                    
-                    if len(parts) < 2:
-                        continue
-                    
-                    addr_raw = parts[0].strip()
-                    body_content = parts[1].strip()
-                    
-                    # Verifica se é do número alvo
-                    if self._normalize_phone(addr_raw) != target_norm:
-                        continue
-                    
-                    # Verifica se a mensagem é "PARAR"
-                    if body_content.upper().strip() == 'PARAR':
-                        msg = f"{phone} respondeu PARAR"
-                        self._log(msg)
-                        if log_callback:
-                            log_callback(msg)
-                        return True
-                
-                except Exception:
-                    continue
+                    raw_date = int(date_match.group(1))
+                    timestamp = datetime.fromtimestamp(raw_date / 1000)
+                except (ValueError, OSError):
+                    pass
+            
+            return SMSMessage(
+                address=addr_raw,
+                address_normalized=addr_normalized,
+                body=body_content,
+                msg_type=msg_type,
+                timestamp=timestamp,
+                raw_date=raw_date
+            )
+            
+        except Exception:
+            return None
+    
+    def _iter_sms_messages(
+        self, 
+        uri: str = "content://sms",
+        projection: str = "address,body,type,date",
+        phone_filter: Optional[str] = None,
+        limit: Optional[int] = None
+    ) -> Generator[SMSMessage, None, None]:
+        output = self._query_sms(uri, projection)
+        if not output:
+            return
+        
+        target_norm = None
+        if phone_filter:
+            target_norm = self._normalize_phone_for_sms(
+                Contact.normalize_phone(phone_filter)
+            )
+        
+        count = 0
+        for line in output.splitlines():
+            msg = self._parse_sms_line(line)
+            
+            if msg is None:
+                continue
+            
+            # Aplicar filtro de telefone se especificado
+            if target_norm and msg.address_normalized != target_norm:
+                continue
+            
+            yield msg
+            count += 1
+            
+            if limit and count >= limit:
+                break
+    
+    def check_for_stop_response(
+        self, 
+        phone: str, 
+        log_callback: Optional[Callable] = None
+    ) -> bool:
+        try:
+            for msg in self._iter_sms_messages(
+                uri="content://sms/inbox",
+                projection="address,body",
+                phone_filter=phone
+            ):
+                if msg.body.upper().strip() == 'PARAR':
+                    log_msg = f"{phone} respondeu PARAR"
+                    self.logger.info(log_msg, source=SOURCE)
+                    if log_callback:
+                        log_callback(log_msg)
+                    return True
             
             return False
             
         except Exception as e:
-            self._log(f"Erro ao verificar PARAR: {e}")
+            self.logger.error("Erro ao verificar PARAR", error=e, source=SOURCE)
             return False
     
+    def get_last_messages(self, phone: str, limit: int = 10) -> List[SMSMessage]:
+        target_norm = Contact.normalize_phone(phone)
+        self.logger.debug(
+            f"Procurando mensagens para: {phone} (Norm: {target_norm})", 
+            source=SOURCE
+        )
+    
+        messages: List[SMSMessage] = []
+        
+        try:
+            for msg in self._iter_sms_messages(phone_filter=phone, limit=limit):
+                messages.append(msg)
+                
+                # Log da mensagem
+                msg_type_pt = 'enviada' if msg.msg_type == 'sent' else 'recebida'
+                date_str = (
+                    msg.timestamp.strftime('%Y-%m-%d %H:%M:%S') 
+                    if msg.timestamp else 'desconhecida'
+                )
+                self.logger.info(
+                    f"   [{msg_type_pt}] [{date_str}] {msg.body[:50]}...", 
+                    source=SOURCE
+                )
+            
+            self.logger.info(
+                f"   Encontradas {len(messages)} mensagens de/para {phone}", 
+                source=SOURCE
+            )
+            
+        except Exception as e:
+            self.logger.error(
+                f"Exceção ao buscar mensagens: {e}", 
+                error=e, 
+                source=SOURCE
+            )
+        
+        return messages
+        
     def _count_sent_sms(self) -> int:
         try:
-            result = self._run_adb(
+            result = self.adb_manager.run_adb(
                 "shell",
                 "content query --uri content://sms/sent"
             )
             if result.returncode == 0:
-                # Conta linhas que começam com "Row:" (cada linha é um SMS)
                 count = result.stdout.count("Row:")
-                self._log(f"   Debug: Contagem SMS = {count}")
+                self.logger.debug(f"Contagem SMS = {count}", source=SOURCE)
                 return count
-            self._log(f"   Debug: Erro ao contar SMS (returncode={result.returncode})")
-            return -1  # Retorna -1 para indicar erro
+            self.logger.warning(
+                f"Erro ao contar SMS (returncode={result.returncode})", 
+                source=SOURCE
+            )
+            return -1
         except Exception as e:
-            self._log(f"   Debug: Exceção ao contar SMS: {e}")
+            self.logger.error("Exceção ao contar SMS", error=e, source=SOURCE)
             return -1
     
-    def get_last_messages(self, phone: str, limit: int = 10) -> list:
-        target_norm = self._normalize_phone(phone)
-        self._log(f"Procurando mensagens para: {phone} (Norm: {target_norm})")
-        
+    def _send_sms(self, phone: str, message: str) -> bool:
         try:
-            # Usa projection para output mais limpo
-            result = self._run_adb(
-                "shell", "content", "query",
-                "--uri", "content://sms",
-                "--projection", "address,body,type,date",
-                "--sort", "date DESC"
+            message_escaped = (
+                message
+                .replace('"', '\\"')
+                .replace("'", "\\'")
+                .replace('$', '\\$')
+                .replace('`', '\\`')
             )
-            
-            if result.returncode != 0:
-                self._log(f"   Erro na query: {result.stderr}")
-                return []
-            
-            messages = []
-            
-            for line in result.stdout.splitlines():
-                if "address=" not in line:
-                    continue
-                
-                try:
-                    # Extrai address: split em "address=" e depois em ", body="
-                    after_address = line.split("address=")[1]
-                    parts = after_address.split(", body=", 1)
-                    
-                    if len(parts) < 2:
-                        continue
-                    
-                    addr_raw = parts[0].strip()
-                    rest = parts[1]
-                    
-                    # Verifica se é o número alvo
-                    if self._normalize_phone(addr_raw) != target_norm:
-                        continue
-                    
-                    # Extrai body (até ao próximo campo ou fim)
-                    body_content = rest
-                    for delimiter in [", type=", ", date="]:
-                        if delimiter in body_content:
-                            body_content = body_content.split(delimiter)[0]
-                            break
-                    body_content = body_content.strip()
-                    
-                    msg_data = {
-                        'address': addr_raw,
-                        'body': body_content if body_content else "(sem conteúdo)",
-                        'type': 'desconhecido',
-                        'date': 'desconhecida'
-                    }
-                    
-                    # Tenta extrair type (1=recebida, 2=enviada)
-                    type_match = re.search(r'type=(\d+)', line)
-                    if type_match:
-                        msg_type = type_match.group(1)
-                        msg_data['type'] = 'enviada' if msg_type == '2' else 'recebida'
-                    
-                    # Tenta extrair data
-                    date_match = re.search(r'date=(\d+)', line)
-                    if date_match:
-                        try:
-                            timestamp = int(date_match.group(1)) / 1000
-                            msg_data['date'] = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
-                        except:
-                            pass
-                    
-                    messages.append(msg_data)
-                    self._log(f"   [{msg_data['type']}] {msg_data['body'][:50]}...")
-                    
-                    if len(messages) >= limit:
-                        break
-                
-                except Exception:
-                    continue  # Pula linhas mal formatadas
-            
-            self._log(f"   Encontradas {len(messages)} mensagens de/para {phone}")
-            return messages
-            
-        except Exception as e:
-            self._log(f"   Exceção ao buscar mensagens: {e}")
-            import traceback
-            self._log(f"   {traceback.format_exc()}")
-            return []
-        
-    def _send_sms_direct(self, phone: str, message: str) -> Tuple[bool, str]:
-        try:
-            # Mantém \n como quebra de linha
-            message_escaped = message.replace('"', '\\"').replace("'", "\\'").replace('$', '\\$').replace('`', '\\`')
             phone_clean = self._normalize_phone_for_sms(phone)
             
             count_before = self._count_sent_sms()
-            self._log(f"   SMS enviados antes: {count_before}")
+            self.logger.info(f"SMS enviados antes: {count_before}", source=SOURCE)
             
-            self._log(f"   A abrir aplicação de mensagens...")
+            self.logger.info("A abrir aplicação de mensagens...", source=SOURCE)
             
-            result = self._run_adb(
+            result = self.adb_manager.run_adb(
                 "shell",
-                f'am start -a android.intent.action.SENDTO -d sms:{phone_clean} --es sms_body "{message_escaped}" --ez exit_on_sent true'
+                f'am start -a android.intent.action.SENDTO -d sms:{phone_clean} '
+                f'--es sms_body "{message_escaped}" --ez exit_on_sent true'
             )
             
             if result.returncode != 0:
-                return False, f"Erro ao abrir app: {result.stderr}"
+                self.logger.error(f"Erro ao abrir app: {result.stderr}", source=SOURCE)
+                return False
             
-            # Aguarda a app abrir completamente
-            self._log(f"   Aguardando app abrir...")
+            self.logger.info("Aguardando app abrir...", source=SOURCE)
             time.sleep(3)
             
-            # Tentativa 1: Clique por coordenadas (canto direito)
-            self._log(f"   Tentativa 1: Clique no canto direito...")
             width, height = self._get_screen_resolution()
-            x = int(width * 0.92)
-            y = int(height * 0.96)
-            self._run_adb("shell", "input", "tap", str(x), str(y))
-            time.sleep(2)
             
-            # Verifica se enviou
-            count_after = self._count_sent_sms()
-            if count_after > count_before:
-                self._log(f"   SMS enviado! ({count_after - count_before} novo)")
-                self._run_adb("shell", "input", "keyevent", "3")  # Volta para home
-                return True, f"SMS enviado ({count_after - count_before} SMS)"
+            # Tentativas de clique em diferentes posições do botão enviar
+            tap_positions = [
+                (0.92, 0.96, "Tentativa 1: Clique no canto direito..."),
+                (0.90, 0.92, "Tentativa 2: Posição alternativa..."),
+                (0.85, 0.94, "Tentativa 3: Última posição...")
+            ]
             
-            # Tentativa 2: Clique mais acima
-            self._log(f"   Tentativa 1 falhou. Tentando posição 2...")
-            x = int(width * 0.90)
-            y = int(height * 0.92)
-            self._run_adb("shell", "input", "tap", str(x), str(y))
-            time.sleep(2)
+            for x_ratio, y_ratio, log_msg in tap_positions:
+                self.logger.info(log_msg, source=SOURCE)
+                x = int(width * x_ratio)
+                y = int(height * y_ratio)
+                self.adb_manager.run_adb("shell", "input", "tap", str(x), str(y))
+                time.sleep(2)
+                
+                count_after = self._count_sent_sms()
+                if count_after > count_before:
+                    self.logger.info(
+                        f"SMS enviado! ({count_after - count_before} novo)", 
+                        source=SOURCE
+                    )
+                    self.adb_manager.run_adb("shell", "input", "keyevent", "3")
+                    return True
+                
+                self.logger.warning(f"{log_msg.split(':')[0]} falhou.", source=SOURCE)
             
-            count_after = self._count_sent_sms()
-            if count_after > count_before:
-                self._log(f"   SMS enviado! ({count_after - count_before} novo)")
-                self._run_adb("shell", "input", "keyevent", "3")  # Volta para home
-                return True, f"SMS enviado ({count_after - count_before} SMS)"
-            
-            # Tentativa 3: Clique no centro direito
-            self._log(f"   Tentativa 2 falhou. Tentando posição 3...")
-            x = int(width * 0.85)
-            y = int(height * 0.94)
-            self._run_adb("shell", "input", "tap", str(x), str(y))
-            time.sleep(2)
-            
-            count_after = self._count_sent_sms()
-            if count_after > count_before:
-                self._log(f"   SMS enviado! ({count_after - count_before} novo)")
-                self._run_adb("shell", "input", "keyevent", "3")  # Volta para home
-                return True, f"SMS enviado ({count_after - count_before} SMS)"
-            
-            # Se chegou aqui, nenhuma tentativa funcionou
-            self._log(f"   Todas as 3 tentativas falharam")
-            self._run_adb("shell", "input", "keyevent", "3")  # Volta para home
-            return False, "Nenhuma tentativa conseguiu enviar o SMS"
+            self.logger.warning("Todas as tentativas falharam", source=SOURCE)
+            self.adb_manager.run_adb("shell", "input", "keyevent", "3")
+            return False
             
         except Exception as e:
-            # Garante que volta para home
             try:
-                self._run_adb("shell", "input", "keyevent", "3")
-            except:
+                self.adb_manager.run_adb("shell", "input", "keyevent", "3")
+            except Exception:
                 pass
-            return False, f"Erro: {e}"
+            self.logger.error("Erro no envio SMS", error=e, source=SOURCE)
+            return False
 
     def send_message(
         self, 
         phone: str, 
-        message: str, 
-        log_callback: Optional[Callable] = None
-    ) -> SMSResult:
-        return self._send_sms_direct_with_verification(phone, message, log_callback)
-    
-    def _send_sms_direct_with_verification(
-        self,
-        phone: str,
         message: str,
-        log_callback: Optional[Callable] = None
-    ) -> SMSResult:
+        contact_name: str = "",
+        message_type: messageType = messageType.GENERAL
+    ) -> Result:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # Converte \n literal em quebras de linha reais
         message = message.replace('\\n', '\n')
-    
+        resultado = Result(
+            contact_name=contact_name,
+            contact_phone=phone,
+            status=statusType.ERROR,
+            message=message,
+            timestamp=timestamp,
+            message_type=message_type
+        )
+        
         if not self.device_connected:
-            self._log("Erro: Dispositivo não conectado")
-            return SMSResult(False, "Dispositivo não conectado", "", timestamp)
+            self.logger.warning("O Dispositivo não está conectado", source=SOURCE)
+            return resultado
         
-        self._log(f"A enviar SMS para {phone}...")
-        if log_callback:
-            log_callback(f"A enviar SMS para {phone}...")
-        
-        # Envia usando método direto
-        success, method_msg = self._send_sms_direct(phone, message)
+        self.logger.debug(f"A enviar SMS para {phone}...", source=SOURCE)
+        success = self._send_sms(phone, message)
         
         if success:
-            msg = f"SMS enviada para {phone}"
-            self._log(msg)
-            if log_callback:
-                log_callback(msg)
-            return SMSResult(True, method_msg, phone, timestamp)
+            self.logger.debug(f"SMS enviada para {phone}", source=SOURCE)
+            resultado.status = statusType.SUCCESS
+            return resultado
         else:
-            error_msg = f"Erro ao enviar: {method_msg}"
-            self._log(error_msg)
-            if log_callback:
-                log_callback(error_msg)
-            return SMSResult(False, method_msg, "", timestamp)
+            self.logger.debug(f"Erro ao enviar SMS para {phone}", source=SOURCE)
+            return resultado
     
     def close(self):
-        self.stop_device_monitoring()
+        self.adb_manager.close()
 
 if __name__ == "__main__":
     print("Teste na leitura de mensagens\n")
-    # Cria instância do sender
-    sender = SMSSender()
+    sender = SMS_Sender()
     
     try:
-        # Procura ADB
-        adb_found, adb_msg = sender.find_adb()
+        adb_found = sender.find_adb()
         if not adb_found:
             print("Erro: ADB não encontrado")
             exit(1)
         
-        # Verifica dispositivo
-        success, msg = sender.check_device()
+        success = sender.check_device()
         if not success:
-            print(f"Erro: {msg}")
+            print("Erro: Não foi possível conectar ao dispositivo")
             exit(1)
         
         if sender.device_info:
             print(f"Conectado ao dispositivo: {sender.device_info.model}\n")
         
-        # Teste de busca de mensagens
-        phone = input("Introduza o número de telefone para buscar mensagens (em formato 900 800 100): ")
+        phone = input("Introduza o número de telefone (formato 900 800 100): ")
         print(f"\nProcurando mensagens de {phone}...")
-        messages = sender.get_last_messages(phone, limit=5)
+        sender.get_last_messages(phone, limit=5)
         
-        if messages:
-            print(f"\nEncontradas {len(messages)} mensagens:\n")
-            for i, msg in enumerate(messages, 1):
-                print(f"  {i}. [{msg.get('type', '?')}] [{msg.get('date', '?')}]")
-                print(f"      {msg.get('body', 'sem conteúdo')[:80]}")
-                print()
-        else:
-            print(f"\nNenhuma mensagem encontrada para {phone}")
-        
-        # Teste com formato internacional
-        phone = input("Introduza o número de telefone para buscar mensagens (em formato +351900800100): ")
+        phone = input("Introduza o número de telefone (formato +351900800100): ")
         print(f"\nProcurando mensagens de {phone}...")
-        messages = sender.get_last_messages(phone, limit=5)
+        sender.get_last_messages(phone, limit=5)
         
-        if messages:
-            print(f"\nEncontradas {len(messages)} mensagens:\n")
-            for i, msg in enumerate(messages, 1):
-                print(f"  {i}. [{msg.get('type', '?')}] [{msg.get('date', '?')}]")
-                print(f"      {msg.get('body', 'sem conteúdo')[:80]}")
-                print()
-        else:
-            print(f"\nNenhuma mensagem encontrada para {phone}")
     finally:
         sender.close()
         print("\nTeste concluído!")

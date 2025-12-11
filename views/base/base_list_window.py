@@ -121,8 +121,12 @@ class BaseListWindow(BaseWindow):
             self._create_row(row_idx, item)
     
     def _create_row(self, row_idx: int, item: Any):
-        # Frame da linha
-        row_frame = ctk.CTkFrame(self.scroll_frame, height=35)
+        # Frame da linha com cores do tema
+        row_frame = ctk.CTkFrame(
+            self.scroll_frame, 
+            height=35,
+            fg_color=self.theme.get_surface()  # Usa cor do tema
+        )
         row_frame.grid(row=row_idx, column=0, columnspan=len(self.columns), 
                        sticky="ew", pady=1)
         row_frame.grid_propagate(False)  # Mantém altura fixa
@@ -223,15 +227,12 @@ class BaseListWindow(BaseWindow):
         return str(value)
     
     def _get_row_color(self, item: Any) -> str:
-        return self.theme.colors.text
+        # Usa a cor de texto correta para o tema atual
+        return self.theme.get_text()
     
     def _on_row_click(self, row_idx: int):
-        # Atualiza seleção visual
-        if self._selected_row is not None and self._selected_row < len(self._rows):
-            self._rows[self._selected_row].configure(fg_color="transparent")
-        
+        # Apenas marca a seleção sem mudar a cor visual da linha
         self._selected_row = row_idx
-        self._rows[row_idx].configure(fg_color=self.theme.colors.surface)
         
         # Callback
         if self._on_select_callback and row_idx < len(self.data):
@@ -277,39 +278,23 @@ class BaseListWindow(BaseWindow):
         else:
             old_value = getattr(item, key, None)
             
-            # Se está editando telemovel_normalizado, atualiza telemovel também
-            if key == "telemovel_normalizado" and hasattr(item, 'editar'):
-                # Valida antes de atualizar
+            # Se está editando telefone, valida antes
+            if key == "telemovel":
                 from models.contact import Contact
-                # Simula normalização para validar
-                test_contact = Contact(
-                    nome="test",
-                    telemovel=new_value,
-                    ultimo_envio=""
-                )
-                if not test_contact.is_valid:
-                    # Número inválido - mostra erro e recusa
-                    self._show_validation_error(f"Número de telefone inválido: {new_value}")
+                
+                # Valida o número antes de normalizar
+                if not Contact.validate_phone(new_value):
+                    self._show_validation_error("Número de telefone inválido\nDevem ser 9-12 dígitos")
                     self._recreate_cell(row_idx, col_idx, key)
                     return
-                
-                item.editar("telemovel", new_value)  # Isso vai renormalizar automaticamente
-            elif hasattr(item, 'editar'):
-                # Valida mudanças
-                if key == "telemovel":
-                    # Valida número de telefone
-                    from models.contact import Contact
-                    test_contact = Contact(
-                        nome="test",
-                        telemovel=new_value,
-                        ultimo_envio=""
-                    )
-                    if not test_contact.is_valid:
-                        self._show_validation_error(f"Número de telefone inválido: {new_value}\nDevem ser 9 dígitos.")
-                        self._recreate_cell(row_idx, col_idx, key)
-                        return
-                
-                item.editar(key, new_value)
+            
+            # Tenta atualizar usando o método editar (que valida e normaliza)
+            if hasattr(item, 'editar'):
+                success = item.editar(key, new_value)
+                if not success:
+                    self._show_validation_error(f"Erro ao atualizar o campo '{key}'")
+                    self._recreate_cell(row_idx, col_idx, key)
+                    return
             else:
                 setattr(item, key, new_value)
         

@@ -1,8 +1,9 @@
 import customtkinter as ctk
 from typing import List, Callable, Optional
 from views.base.base_list_window import BaseListWindow
+from views.windows.add_contact_window import AddContactWindow
 from models.contact import Contact
-
+from tkinter import messagebox
 
 class ContactEditorWindow(BaseListWindow):
     def __init__(
@@ -14,13 +15,12 @@ class ContactEditorWindow(BaseListWindow):
     ):
         self._on_save = on_save
         self._modified = False
-        self._add_dialog_open = False  # Flag para controlar diálogo de adicionar
         self._editing_row = False  # Flag para controlar edição de linha
         self._send_all_mode = send_all_mode  # Guarda o modo
         
         columns = [
             {"title": "Nome", "key": "nome", "weight": 1, "editable": True, "min_width": 200},
-            {"title": "Telemóvel", "key": "telemovel_normalizado", "weight": 0, "editable": True, "width": 150},
+            {"title": "Telemóvel", "key": "telemovel", "weight": 0, "editable": True, "width": 150},
             {"title": "Último Envio", "key": "ultimo_envio", "weight": 0, "format": "date", "width": 120},
             {"title": "Ativo", "key": "ativo", "weight": 0, "type": "toggle", "width": 60}
         ]
@@ -77,17 +77,9 @@ class ContactEditorWindow(BaseListWindow):
             command=self._save
         ).pack(side="left", padx=5)
         
-        ctk.CTkButton(
-            btn_frame,
-            text="Fechar",
-            width=80,
-            fg_color="gray",
-            command=self._on_close
-        ).pack(side="left", padx=5)
-    
     def _get_stats_text(self) -> str:
         total = len(self.data)
-        active = sum(1 for c in self.data if c.ativo and not c._deleted)
+        active = sum(1 for c in self.data if c.ativo)
         return f"Total: {total} | Ativos: {active}"
     
     def _get_row_color(self, item: Contact) -> str:
@@ -118,120 +110,27 @@ class ContactEditorWindow(BaseListWindow):
                 self._recreate_cell(row_idx, col_idx, col.get("key", "")) # Atualiza cor da célula
                 
     def _add_contact(self):
-        # Marca que o diálogo está aberto
-        self._add_dialog_open = True
-
-        # Cria janela de diálogo
-        dialog = ctk.CTkToplevel(self)
-        dialog.title("Adicionar Contacto")
-        
-        # Ajustei para uma altura mais razoável com os novos espaçamentos
-        dialog.geometry("500x350") 
-        
-        dialog.transient(self)
-        dialog.grab_set()
-
-        # Centraliza sobre a janela pai
-        dialog.update_idletasks()
-        x = self.winfo_x() + (self.winfo_width() - 500) // 2
-        y = self.winfo_y() + (self.winfo_height() - 380) // 2
-        dialog.geometry(f"+{x}+{y}")
-
-        # Função para fechar o diálogo
-        def close_dialog():
-            self._add_dialog_open = False
-            dialog.destroy()
-
-        # Bind para fechar corretamente
-        dialog.protocol("WM_DELETE_WINDOW", close_dialog)
-
-        frame = ctk.CTkFrame(dialog, fg_color="transparent")
-        frame.pack(fill="both", expand=True, padx=20, pady=20)
-        frame.grid_columnconfigure(0, weight=1)
-
-        # Título
-        title_label = ctk.CTkLabel(frame, text="Novo Contacto", font=("", 18, "bold"))
-        title_label.pack(pady=(0, 15)) # Reduzi de 20 para 15
-
-        # Campo Nome
-        ctk.CTkLabel(frame, text="Nome:", font=("", 12, "bold")).pack(anchor="w", pady=(0, 2))
-        nome_entry = ctk.CTkEntry(frame, placeholder_text="Ex: João Silva", height=35, font=("", 12))
-        nome_entry.pack(fill="x", pady=(0, 10)) # Reduzi de 15 para 10
-        nome_entry.focus()
-
-        # Campo Telemóvel
-        ctk.CTkLabel(frame, text="Telemóvel:", font=("", 12, "bold")).pack(anchor="w", pady=(0, 2))
-        telemovel_entry = ctk.CTkEntry(frame, placeholder_text="Ex: 920 300 100", height=35, font=("", 12))
-        telemovel_entry.pack(fill="x", pady=(0, 10)) # Reduzi de 20 para 10
-
-        # Label de aviso
-        warning_label = ctk.CTkLabel(frame, text="", text_color="orange", font=("", 11))
-        warning_label.pack(pady=(0, 10)) # Reduzi de 20 para 10
-
-        def on_confirm():
-            nome = nome_entry.get().strip()
-            telemovel = telemovel_entry.get().strip()
-
-            if not nome:
-                warning_label.configure(text="Nome é obrigatório")
-                nome_entry.focus()
+        def on_save(contact: Contact):
+            # Valida o número antes de adicionar
+            if not Contact.validate_phone(contact.telemovel):
                 return
 
-            if not telemovel:
-                warning_label.configure(text="Telemóvel é obrigatório")
-                telemovel_entry.focus()
-                return
-
-            new_contact = Contact(nome=nome, telemovel=telemovel, ativo=True)
-
-            if not new_contact.is_valid:
-                warning_label.configure(text="Número inválido (mínimo 9 dígitos)")
-                telemovel_entry.focus()
-                return
-
-            self.data.append(new_contact)
+            # Marca como ativo e adiciona à lista
+            contact.ativo = True
+            self.data.append(contact)
             self._modified = True
             self.refresh_data()
             self._update_stats()
-            close_dialog()
             self.after(100, lambda: self._on_row_click(len(self.data) - 1))
 
-        def on_cancel():
-            close_dialog()
+        # Cria e mostra janela
+        AddContactWindow(self, on_save=on_save)
 
-        btn_frame = ctk.CTkFrame(frame, fg_color="transparent")
-        btn_frame.pack(fill="x", pady=(10, 0)) 
-
-        cancel_btn = ctk.CTkButton(
-            btn_frame,
-            text="Cancelar",
-            height=40, # Reduzi altura levemente (45->40)
-            font=("", 12),
-            fg_color="gray",
-            command=on_cancel
-        )
-        cancel_btn.pack(side="left", padx=(0, 5), fill="x", expand=True)
-
-        add_btn = ctk.CTkButton(
-            btn_frame,
-            text="Adicionar",
-            height=40, # Reduzi altura levemente (45->40)
-            fg_color=self.theme.colors.success,
-            font=("", 12),
-            command=on_confirm
-        )
-        add_btn.pack(side="left", padx=(5, 0), fill="x", expand=True)
-
-        # Binds
-        nome_entry.bind("<Return>", lambda e: telemovel_entry.focus())
-        telemovel_entry.bind("<Return>", lambda e: on_confirm())
-        dialog.bind("<Escape>", lambda e: on_cancel())
     def _delete_selected(self):
         # Filtra contactos ativos (não eliminados)
-        active_contacts = [c for c in self.data if not c._deleted]
+        active_contacts = [c for c in self.data if c.ativo]
         
         if not active_contacts:
-            from tkinter import messagebox
             messagebox.showinfo("Sem Contactos", "Não há contactos para eliminar.")
             return
         
@@ -272,7 +171,7 @@ class ContactEditorWindow(BaseListWindow):
             item_frame.pack(fill="x", pady=2)
             
             # Radio button com info do contacto
-            radio_text = f"{contact.nome} - {contact.telemovel_normalizado}"
+            radio_text = f"{contact.nome} - {contact.telemovel}"
             if not contact.ativo:
                 radio_text += " (Inativo)"
             
@@ -287,7 +186,6 @@ class ContactEditorWindow(BaseListWindow):
         
         def on_delete():
             if not radio_var.get():
-                from tkinter import messagebox
                 messagebox.showwarning("Aviso", "Selecione um contacto para eliminar.")
                 return
             
@@ -295,15 +193,15 @@ class ContactEditorWindow(BaseListWindow):
             contact = active_contacts[idx]
             
             # Confirmação
-            from tkinter import messagebox
             if messagebox.askyesno(
                 "Confirmar Eliminação",
                 f"Tem certeza que deseja eliminar:\n\n"
                 f"Nome: {contact.nome}\n"
-                f"Telemóvel: {contact.telemovel_normalizado}\n\n"
+                f"Telemóvel: {contact.telemovel}\n\n"
                 f"Esta ação não pode ser desfeita."
             ):
-                contact.eliminar()
+                # Remove contacto da lista
+                self.data.remove(contact)
                 self._modified = True
                 dialog.destroy()
                 # Atualiza interface APÓS fechar dialog
@@ -339,9 +237,7 @@ class ContactEditorWindow(BaseListWindow):
     
     def _save(self):
         if self._on_save:
-            # Remove eliminados
-            active_contacts = [c for c in self.data if not c._deleted]
-            self._on_save(active_contacts)
+            self._on_save(self.data)
         self._modified = False
         # Fechar janela após guardar
         self._force_close()
@@ -350,9 +246,6 @@ class ContactEditorWindow(BaseListWindow):
         super()._on_close()
     
     def _can_close(self) -> bool:
-        # Não pode fechar se diálogo de adicionar está aberto
-        if self._add_dialog_open:
-            return False
         # Não pode fechar se está editando uma linha
         if self._selected_row is not None:
             return False
@@ -364,7 +257,6 @@ class ContactEditorWindow(BaseListWindow):
             return
             
         if self._modified:
-            from tkinter import messagebox
             if messagebox.askyesno(
                 "Alterações não guardadas",
                 "Tem alterações não guardadas. Deseja guardar antes de fechar?"
@@ -377,17 +269,17 @@ class ContactEditorWindow(BaseListWindow):
         if new_data is not None:
             self.data = new_data
         
-        # Filtra apenas contactos não eliminados para exibição
-        display_data = [c for c in self.data if not getattr(c, '_deleted', False)]
+        # Exibe todos os contactos (os inativos ficam marcados como não selecionáveis)
+        display_data = self.data
         
-        # Limpa rows e repopula com dados filtrados
+        # Limpa rows e repopula com dados
         for row in self._rows:
             row.destroy()
         self._rows.clear()
         self._edit_widgets.clear()
         self._checkboxes.clear()
         
-        # Cria novas rows apenas com contactos ativos
+        # Cria novas rows
         for row_idx, item in enumerate(display_data):
             self._create_row(row_idx, item)
         

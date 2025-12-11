@@ -10,7 +10,7 @@ class SMSInitializationWindow(BaseWindow):
     def __init__(
         self,
         parent: ctk.CTk,
-        sms_sender,  # SMSSender instance
+        sms_sender,  # SMS_Sender instance
         on_success: Optional[Callable] = None
     ):
         self.sms_sender = sms_sender
@@ -314,7 +314,7 @@ class SMSInitializationWindow(BaseWindow):
                 time.sleep(2)
                 
             except Exception as e:
-                print(f"Erro no monitoramento: {e}")
+                self._log_error(f"Erro no monitoramento: {e}")
                 time.sleep(2)
     
     def _update_step1_detected(self):
@@ -369,15 +369,18 @@ class SMSInitializationWindow(BaseWindow):
     def _update_step2_authorized(self, device_id: str):
         self.step2_frame["icon"].configure(text="✅")
         
-        # Obtém info do dispositivo
-        model = ""
-        brand = ""
-        if hasattr(self.sms_sender, '_get_device_model'):
-            model = self.sms_sender._get_device_model(device_id)
-        if hasattr(self.sms_sender, '_get_device_brand'):
-            brand = self.sms_sender._get_device_brand(device_id)
-        
-        full_name = f"{brand} {model}".strip() if brand else model
+        # Obtém info do dispositivo usando método centralizado
+        if hasattr(self.sms_sender, 'get_device_info_external'):
+            model, brand, full_name = self.sms_sender.get_device_info_external(device_id)
+        else:
+            # Fallback para compatibilidade
+            model = ""
+            brand = ""
+            if hasattr(self.sms_sender, '_get_device_model'):
+                model = self.sms_sender._get_device_model(device_id)
+            if hasattr(self.sms_sender, '_get_device_brand'):
+                brand = self.sms_sender._get_device_brand(device_id)
+            full_name = f"{brand} {model}".strip() if brand else model
         
         self.step2_frame["description"].configure(
             text=f"Autorizado! Dispositivo: {full_name}",

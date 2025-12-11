@@ -1,122 +1,17 @@
 import customtkinter as ctk
-from typing import Optional, Callable
-import sys
 import tkinter as tk
+from typing import Optional, Callable, Union
+import sys
 from pathlib import Path
-
-# Importação condicional para evitar erros
-try:
-    from config.settings import ThemeManager
-except ImportError:
-    import sys
-    from pathlib import Path
-    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-    from config.settings import ThemeManager
-
-
-def set_window_icon_unified(window, window_name="Window"):
-    try:
-        from utils.theme.theme_detector import get_windows_theme
-        from pathlib import Path
-        from PIL import Image
-        import tkinter as tk
-        import sys
-        
-        # Detecta tema
-        theme = get_windows_theme()
-        
-        # Define nome do ícone baseado no tema
-        icon_name = f"icon_{'light' if theme == 'light' else 'dark'}.ico"
-        
-        # Procura o ícone: prioridade para _MEIPASS (executável empacotado)
-        icon_path = None
-        
-        # 1. Tenta _MEIPASS primeiro (executável)
-        if getattr(sys, 'frozen', False):
-            meipass = Path(getattr(sys, '_MEIPASS', ''))
-            test_path = meipass / icon_name
-            if test_path.exists():
-                icon_path = test_path
-                print(f"Ícone encontrado em _MEIPASS: {icon_path}")
-        
-        # 2. Tenta diretório do script/executável
-        if icon_path is None:
-            if getattr(sys, 'frozen', False):
-                base_dir = Path(sys.executable).parent
-            else:
-                base_dir = Path(__file__).parent.parent.parent
-            
-            test_path = base_dir / icon_name
-            if test_path.exists():
-                icon_path = test_path
-                print(f"Ícone encontrado em base_dir: {icon_path}")
-        
-        if icon_path is None or not icon_path.exists():
-            print(f"Ícone não encontrado: {icon_name}")
-            print(f"  Procurado em _MEIPASS: {getattr(sys, '_MEIPASS', 'N/A')}")
-            print(f"  Frozen: {getattr(sys, 'frozen', False)}")
-            return False
-        
-        # Para janelas CTkToplevel (secundárias), usa iconphoto com conversão
-        if isinstance(window, ctk.CTkToplevel):
-            try:
-                # Carrega o .ico e converte para PhotoImage
-                img = Image.open(str(icon_path))
-                
-                # Redimensiona para 32x32 (padrão Windows)
-                if img.size[0] > 32 or img.size[1] > 32:
-                    try:
-                        # Tenta PIL 10+ primeiro
-                        img = img.resize((32, 32), Image.Resampling.LANCZOS)  # type: ignore
-                    except AttributeError:
-                        # Fallback para PIL 9 e anteriores
-                        img = img.resize((32, 32), Image.LANCZOS)  # type: ignore
-                
-                # Converte para RGB se necessário
-                if img.mode == 'RGBA':
-                    background = Image.new('RGB', img.size, (255, 255, 255))
-                    background.paste(img, mask=img.split()[3])
-                    img = background
-                elif img.mode != 'RGB':
-                    img = img.convert('RGB')
-                
-                # Salva em buffer e cria PhotoImage
-                import io
-                buffer = io.BytesIO()
-                img.save(buffer, format='PNG')
-                buffer.seek(0)
-                
-                photo = tk.PhotoImage(data=buffer.getvalue())
-                window.iconphoto(True, photo)
-                # Mantém referência para evitar garbage collection
-                setattr(window, '_icon_reference', photo)
-                
-                print(f"Ícone aplicado (CTkToplevel)")
-                return True
-            except Exception as e:
-                print(f"Erro ao aplicar ícone (CTkToplevel): {e}")
-                return False
-        else:
-            # Para janela principal (CTk), usa iconbitmap
-            try:
-                window.iconbitmap(str(icon_path))
-                print(f"Ícone aplicado (CTk)")
-                return True
-            except Exception as e:
-                print(f"Erro ao aplicar ícone (CTk): {e}")
-                return False
-                
-    except Exception as e:
-        print(f"Erro geral ao aplicar ícone: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
+from utils.theme.icon_helper import set_window_icon_unified
+from config.settings import ThemeManager
+from utils.logger import get_logger
 
 
 class BaseWindow(ctk.CTkToplevel):
     def __init__(
         self,
-        parent: ctk.CTk,
+        parent: Union[ctk.CTk, ctk.CTkToplevel],
         title: str = "Janela",
         size: tuple = (600, 400),
         resizable: tuple = (True, True),
@@ -130,6 +25,8 @@ class BaseWindow(ctk.CTkToplevel):
         # Referências
         self.parent = parent
         self.theme = ThemeManager()
+        self.logger = get_logger()
+        self._window_name = title
         
         # Configuração básica
         self.title(title)
@@ -166,12 +63,7 @@ class BaseWindow(ctk.CTkToplevel):
         # Modal e transient
         if modal:
             self.transient(parent)
-            # Aplica ícone também em janelas secundárias
-            set_window_icon_unified(self, title)
             self.grab_set()
-        else:
-            # Também aplica em janelas não-modais
-            set_window_icon_unified(self, title)
         
         # Centralizar e mostrar
         if center:
@@ -181,6 +73,9 @@ class BaseWindow(ctk.CTkToplevel):
         self.deiconify()
         self.lift()
         self.focus_force()
+        
+        # Aplica ícone APÓS deiconify() - garante que a janela está pronta
+        set_window_icon_unified(self, title)
     
     def _build_ui(self):
         pass
@@ -224,6 +119,19 @@ class BaseWindow(ctk.CTkToplevel):
     def set_on_close(self, callback: Callable):
         self._on_close_callback = callback
     
+    # Métodos auxiliares de logging
+    def _log_debug(self, message: str):
+        self.logger.debug(message, self._window_name)
+    
+    def _log_info(self, message: str):
+        self.logger.info(message, self._window_name)
+    
+    def _log_warning(self, message: str):
+        self.logger.warning(message, self._window_name)
+    
+    def _log_error(self, message: str):
+        self.logger.error(message, self._window_name)
+    
     def configure_grid_weights(
         self,
         frame: ctk.CTkFrame,
@@ -236,13 +144,6 @@ class BaseWindow(ctk.CTkToplevel):
             frame.grid_columnconfigure(col_idx, weight=weight)
     
     def apply_theme_to_widget(self, widget, widget_type: str = "default"):
-        """
-        Aplica cores do tema a um widget específico.
-        
-        Args:
-            widget: O widget CTk a ser estilizado
-            widget_type: Tipo do widget ('frame', 'button', 'label', 'entry', 'default')
-        """
         if widget_type == "frame":
             widget.configure(
                 fg_color=self.theme.get_surface(),
@@ -284,11 +185,10 @@ class BaseMainWindow(ctk.CTk):
     ):
         super().__init__()
         
-        # Esconde durante construção
-        self.withdraw()
-        
-        # Theme
+        # Theme e Logger
         self.theme = ThemeManager()
+        self.logger = get_logger()
+        self._window_name = title
         
         # Configuração
         self.title(title)
@@ -302,14 +202,11 @@ class BaseMainWindow(ctk.CTk):
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
         
-        # Define ícone da janela principal (usa tema do sistema)
-        set_window_icon_unified(self, title)
-        
         # Construir UI
         self._build_ui()
         
-        # Mostrar após construção
-        self.after(50, self._show_window)
+        # Define ícone da janela principal APÓS construção (usa tema do sistema)
+        set_window_icon_unified(self, title)
     
     def _show_window(self):
         self.deiconify()
@@ -319,32 +216,33 @@ class BaseMainWindow(ctk.CTk):
         pass # Implementado nas subclasses
     
     def apply_theme_to_widget(self, widget, widget_type: str = "default"):
-        if widget_type == "frame":
-            widget.configure(
-                fg_color=self.theme.get_surface(),
-                border_color=self.theme.get_border()
-            )
-        elif widget_type == "button":
-            widget.configure(
-                fg_color=self.theme.get_primary(),
-                hover_color=self.theme.get_primary(),
-                text_color=self.theme.get_text(),
-                border_color=self.theme.get_border()
-            )
-        elif widget_type == "label":
-            widget.configure(
-                text_color=self.theme.get_text(),
-                fg_color="transparent"
-            )
-        elif widget_type == "entry":
-            widget.configure(
-                fg_color=self.theme.get_surface(),
-                text_color=self.theme.get_text(),
-                border_color=self.theme.get_border()
-            )
-        elif widget_type == "text":
-            widget.configure(
-                fg_color=self.theme.get_surface(),
-                text_color=self.theme.get_text(),
-                border_color=self.theme.get_border()
-            )
+        match widget_type:
+            case "frame":
+                widget.configure(
+                    fg_color=self.theme.get_surface(),
+                    border_color=self.theme.get_border()
+                )
+            case "button":
+                widget.configure(
+                    fg_color=self.theme.get_primary(),
+                    hover_color=self.theme.get_primary(),
+                    text_color=self.theme.get_text(),
+                    border_color=self.theme.get_border()
+                )
+            case "label":
+                widget.configure(
+                    text_color=self.theme.get_text(),
+                    fg_color="transparent"
+                )
+            case "entry":
+                widget.configure(
+                    fg_color=self.theme.get_surface(),
+                    text_color=self.theme.get_text(),
+                    border_color=self.theme.get_border()
+                )
+            case "text":
+                widget.configure(
+                    fg_color=self.theme.get_surface(),
+                    text_color=self.theme.get_text(),
+                    border_color=self.theme.get_border()
+                )
