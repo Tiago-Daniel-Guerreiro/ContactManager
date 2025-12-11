@@ -3,7 +3,7 @@ from typing import Optional
 from utils.environment import is_frozen
 
 # Constantes da aplicação
-APP_USER_MODEL_ID = 'TiagoGuerreiro.ContactManager.7.0.2'
+APP_USER_MODEL_ID = 'TiagoGuerreiro.ContactManager.8.1.3'
 
 def is_windows() -> bool:
     return sys.platform == 'win32'
