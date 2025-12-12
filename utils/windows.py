@@ -1,15 +1,12 @@
 import sys
 from typing import Optional
-from utils.environment import is_frozen
+from utils.environment import is_frozen, platform_is_windows
 
 # Constantes da aplicação
-APP_USER_MODEL_ID = 'TiagoGuerreiro.ContactManager.8.1.3'
-
-def is_windows() -> bool:
-    return sys.platform == 'win32'
+APP_USER_MODEL_ID = 'TiagoGuerreiro.ContactManager.8.1.4'
 
 def allocate_console() -> bool:
-    if not is_windows():
+    if not platform_is_windows():
         return False
     
     # Só faz sentido se for executável (frozen)
@@ -35,7 +32,7 @@ def allocate_console() -> bool:
     return False
 
 def set_app_user_model_id(app_id: Optional[str] = None) -> bool:
-    if not is_windows():
+    if not platform_is_windows():
         return False
     
     if app_id is None:
@@ -51,12 +48,12 @@ def set_app_user_model_id(app_id: Optional[str] = None) -> bool:
 
 def setup_windows(allocate_debug_console: bool = False) -> dict:
     results = {
-        "is_windows": is_windows(),
+        "is_windows": platform_is_windows(),
         "console_allocated": False,
         "app_id_set": False,
     }
     
-    if not is_windows():
+    if not platform_is_windows():
         return results
     
     # Aloca console se solicitado

@@ -102,7 +102,7 @@ class ThemeColors:
 @dataclass
 class AppSettings:
     app_name: str = "Sistema de Gestão de Contactos"
-    version: str = "8.1.3 (beta)"
+    version: str = "8.1.4"
     
     # Janela principal
     main_window_size: tuple = (1000, 750)
