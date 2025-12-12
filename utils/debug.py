@@ -11,9 +11,10 @@ from utils.environment import (
     setup_environment,
     get_environment_info,
     is_frozen,
-    get_meipass
+    get_meipass,
+    platform_is_windows
 )
-from utils.windows import is_windows, allocate_console, set_app_user_model_id
+from utils.windows import allocate_console, set_app_user_model_id
 
 if TYPE_CHECKING:
     from utils.logger import Logger
@@ -85,11 +86,11 @@ class DebugManager:
                 print(f"[INICIALIZAÇÃO] Erro ao mostrar message box: {e}", flush=True)
         
         # Aloca console se necessário (Windows .exe em modo debug)
-        if self._debug_mode and is_windows() and is_frozen():
+        if self._debug_mode and platform_is_windows() and is_frozen():
             self._console_allocated = allocate_console()
         
         # AppUserModelID para Windows
-        if is_windows():
+        if platform_is_windows():
             set_app_user_model_id()
     
     def get_environment_info(self) -> dict:

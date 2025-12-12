@@ -8,7 +8,6 @@ from .environment import (
     get_environment_info
 )
 from .windows import (
-    is_windows,
     allocate_console,
     set_app_user_model_id,
     setup_windows

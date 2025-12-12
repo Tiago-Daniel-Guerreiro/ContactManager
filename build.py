@@ -5,6 +5,7 @@ import argparse
 import platform
 from pathlib import Path
 from utils.environment import platform_is_windows, platform_is_linux, platform_is_mac
+
 def get_target_platform(args):
     if args.windows:
         return "windows"
