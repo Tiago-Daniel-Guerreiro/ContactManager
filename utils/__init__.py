@@ -30,7 +30,6 @@ __all__ = [
     'setup_environment',
     'get_environment_info',
     # Windows
-    'is_windows',
     'allocate_console',
     'set_app_user_model_id',
     'setup_windows',

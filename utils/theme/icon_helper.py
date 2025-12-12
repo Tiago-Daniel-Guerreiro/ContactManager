@@ -39,7 +39,6 @@ def set_window_icon_unified(
         logger.error(f"[{window_name}] Erro ao aplicar ícone", error=e)
         return False
 
-
 def _apply_ico_icon(
     window: Union[ctk.CTk, ctk.CTkToplevel],
     window_name: str,
@@ -55,7 +54,7 @@ def _apply_ico_icon(
     try:
         if is_main_window:
             window.iconbitmap(str(icon_path))
-            logger.info(f"[{window_name}] Ícone .ico aplicado (janela principal)")
+            logger.debug(f"[{window_name}] Ícone .ico aplicado (janela principal)")
             return True
         else:
             # Para CTkToplevel, precisa de delay
@@ -68,7 +67,7 @@ def _apply_ico_icon(
             )
             return True
     except Exception as e:
-        logger.error(f"[{window_name}] Erro ao aplicar .ico: {e}")
+        logger.error(f"[{window_name}] Erro ao aplicar .ico",error=e)
         return False
 
 
@@ -98,7 +97,7 @@ def _apply_png_icon(
 
         if is_main_window:
             window.iconphoto(True, icon)  # True = aplicar a todas as janelas
-            logger.info(f"[{window_name}] Ícone .png aplicado (janela principal)")
+            logger.debug(f"[{window_name}] Ícone .png aplicado (janela principal)")
             return True
         else:
             _apply_with_retry(
@@ -111,7 +110,7 @@ def _apply_png_icon(
             return True
             
     except Exception as e:
-        logger.error(f"[{window_name}] Erro ao aplicar .png: {e}")
+        logger.error(f"[{window_name}] Erro ao aplicar .png",error=e)
         return False
 
 
@@ -143,19 +142,13 @@ def _apply_with_retry(
         try:
             if window.winfo_exists():
                 apply_func()
-                logger.info(
-                    f"[{window_name}] Ícone .{icon_type} aplicado "
-                    f"após {count + 1} tentativa(s)"
-                )
+                logger.debug(f"[{window_name}] Ícone .{icon_type} aplicado após {count + 1} tentativa(s)")
                 return
         except tk.TclError:
             pass  # Janela ainda não está pronta
         except Exception as e:
             if count + 1 >= max_attempts:
-                logger.error(
-                    f"[{window_name}] Falha ao aplicar .{icon_type} "
-                    f"após {max_attempts} tentativas: {e}"
-                )
+                logger.error(f"[{window_name}] Falha ao aplicar .{icon_type} após {max_attempts} tentativas",error=e)
                 return
         
         if count < max_attempts:
