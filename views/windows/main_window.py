@@ -15,6 +15,7 @@ from controllers.services.contact_service import ContactService
 from controllers.services.config_service import ConfigService
 from controllers.services.message_service import MessageService
 from utils.environment import get_base_dir
+import tkinter as tk
 
 class MainWindow(BaseMainWindow):    
     def __init__(self):
@@ -42,15 +43,28 @@ class MainWindow(BaseMainWindow):
         self._add_context_menu_to_textboxes()
 
     def _add_context_menu_to_textboxes(self):
-        import tkinter as tk
         def add_menu(widget):
-            menu = tk.Menu(widget, tearoff=0)
-            menu.add_command(label="Copiar", command=lambda: widget.event_generate('<<Copy>>'))
-            menu.add_command(label="Colar", command=lambda: widget.event_generate('<<Paste>>'))
-            menu.add_command(label="Cortar", command=lambda: widget.event_generate('<<Cut>>'))
+            # Pega o widget interno do CTkTextbox
+            tw = widget._textbox if hasattr(widget, '_textbox') else widget
+            
+            menu = tk.Menu(tw, tearoff=0)
+            
+            menu.add_command(label="Copiar", 
+                command=lambda: tw.event_generate('<<Copy>>'))
+            menu.add_command(label="Colar", 
+                command=lambda: tw.event_generate('<<Paste>>'))
+            menu.add_command(label="Cortar", 
+                command=lambda: tw.event_generate('<<Cut>>'))
+            menu.add_separator()
+            menu.add_command(label="Selecionar Tudo", 
+                command=lambda: tw.event_generate('<<SelectAll>>'))
+            
             def show_menu(event):
+                tw.focus_set()  # IMPORTANTE: dar foco primeiro!
                 menu.tk_popup(event.x_root, event.y_root)
-            widget.bind("<Button-3>", show_menu)
+            
+            tw.bind("<Button-3>", show_menu)
+        
         if hasattr(self, 'message_text'):
             add_menu(self.message_text)
         if hasattr(self, 'welcome_text'):
